@@ -90,6 +90,12 @@ public indirect enum JSONValue: Codable, Hashable, Sendable {
 
     /// First value found for `key`, searching this node then descending
     /// breadth-first. Lets a source say "find `five_hour` wherever it lives".
+    ///
+    /// - Important: only for documents where a key name is unambiguous. Sibling
+    ///   subtrees are searched in dictionary order, which is not stable, so on a
+    ///   document containing the same key in several places this returns an
+    ///   arbitrary one. Never use it to pull credentials out of a blob that
+    ///   holds more than one service's tokens — address those by explicit path.
     public func firstValue(forKey key: String) -> JSONValue? {
         var queue: [JSONValue] = [self]
         while !queue.isEmpty {

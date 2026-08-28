@@ -26,9 +26,11 @@ CL 43%  ·  GPT 18%                       ← menu bar
 
 ```bash
 brew install xcodegen
-./scripts/install-claude-statusline.sh   # enables the Claude reading
-./scripts/build.sh                       # build + launch
+./scripts/build.sh    # build + launch
 ```
+
+Claude works out of the box via its usage endpoint. The statusLine mirror below
+is an optional offline fallback.
 
 ## Where the numbers come from
 
@@ -45,16 +47,17 @@ as fresh as your last CLI turn. **Live** is current but rides undocumented
 endpoints. When live fails the cached number is still shown, labelled with the
 reason. Turn live off per-provider in the panel's settings to go fully offline.
 
-The Claude statusLine route is the sturdiest path, because `rate_limits` is part
-of Claude Code's *documented* statusLine payload rather than a private API.
+The Claude statusLine route is appealing because `rate_limits` is part of Claude
+Code's *documented* statusLine payload rather than a private API — but it only
+fires in terminal Claude Code. Inside the desktop app there is no status line to
+render, so nothing ever calls the hook. Live is therefore the default for Claude.
 
 ### Verified status
 
-- Claude local — **working** (after running the installer)
-- Claude live — endpoint and OAuth are correct (it authenticates), but returns
-  `429` consistently, with or without CLI-style client headers. Treated as
-  transient, so the cached reading stands. **The statusLine mirror is the
-  reliable Claude source.**
+- Claude live — **working**. This is the default Claude source.
+- Claude local — **working**, but note the statusLine hook only fires in
+  *terminal* Claude Code. The desktop app renders no status line, so the mirror
+  is never written there. Useful as an offline fallback if you use the terminal.
 - ChatGPT local — **working**
 - ChatGPT live — returns `404`; the exact path is undocumented. Override without
   rebuilding: `QUOTA_MONITOR_CODEX_USAGE_URL=https://…`. Local covers this
@@ -71,8 +74,8 @@ Making it work would mean either evading the bot check — which this project do
 not do — or hosting a `WKWebView` that loads claude.ai so the real browser engine
 satisfies the challenge normally, then reading the endpoint from inside that
 session. That is legitimate but heavy, and it puts a browser and a live session
-cookie inside a menu bar app. The statusLine mirror gets the same numbers with no
-credentials at all, which is why it is the default.
+cookie inside a menu bar app — all to fetch numbers `/api/oauth/usage` already
+returns. Not worth it.
 
 ## The widget
 
@@ -136,6 +139,14 @@ its trajectory and its reference in less space.
 **Stale readings are corrected, not trusted.** A local reading of "82% used" is
 meaningless once the window has reset, so `currentUsedPercent(asOf:)` returns nil
 past `resetsAt`.
+
+**Credentials are addressed by path, never searched for.** The Claude Keychain
+item holds `claudeAiOauth` alongside `mcpOAuth`, a map of per-MCP-server
+credentials that each carry their own `accessToken`. A recursive key search finds
+an arbitrary one of those — dictionary order is not stable — and authenticates as
+the wrong service, or with an empty string. That produced a persistent `429` that
+looked exactly like rate limiting. `JSONValue.firstValue(forKey:)` stays for
+parsing unknown *response* shapes; credentials use explicit paths.
 
 **Absence is never zero.** A reset or missing window renders `—` with "no reading
 since this window reset". Returning `0%` there would assert a fresh, empty window

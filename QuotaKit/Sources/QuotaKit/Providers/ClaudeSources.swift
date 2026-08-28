@@ -46,6 +46,28 @@ public enum Claude {
         }
     }
 
+    /// Pulls the Claude OAuth details out of the Keychain blob.
+    ///
+    /// Scoped deliberately to the `claudeAiOauth` subtree. The same item also
+    /// stores `mcpOAuth` — a map of per-MCP-server credentials that each carry
+    /// their own `accessToken` — so a loose recursive search can return another
+    /// service's token, or an empty one, and authenticate as the wrong thing.
+    static func credentials(from json: JSONValue) throws -> (token: String, expiry: Date?, plan: String?) {
+        let oauth = json["claudeAiOauth"] ?? json
+
+        guard let token = (oauth["accessToken"] ?? oauth["access_token"])?.string,
+              !token.isEmpty
+        else {
+            throw QuotaError.notConfigured("No Claude access token — run `claude` and sign in")
+        }
+
+        return (
+            token,
+            (oauth["expiresAt"] ?? oauth["expires_at"])?.date,
+            (oauth["subscriptionType"] ?? oauth["subscription_type"])?.string
+        )
+    }
+
     static func snapshot(
         fromRateLimits limits: JSONValue,
         observedAt: Date,
@@ -142,15 +164,10 @@ public struct ClaudeLiveSource: QuotaSource {
         let raw = try credentialsProvider()
         let credentials = try JSONValue.parse(raw)
 
-        guard let token = credentials.firstValue(forKey: "accessToken")?.string
-            ?? credentials.firstValue(forKey: "access_token")?.string
-        else {
-            throw QuotaError.notConfigured("No Claude access token — run `claude` and sign in")
-        }
+        let (token, expiry, plan) = try Claude.credentials(from: credentials)
 
         // Claude Code refreshes this itself; if it has lapsed, using the CLI once fixes it.
-        if let expiry = credentials.firstValue(forAnyKey: ["expiresAt", "expires_at"])?.date,
-           expiry <= Date() {
+        if let expiry, expiry <= Date() {
             throw QuotaError.unauthorized("Claude token expired — open Claude Code to refresh it")
         }
 
@@ -174,7 +191,9 @@ public struct ClaudeLiveSource: QuotaSource {
 
         let root = try JSONValue.parse(body)
         let limits = root.firstValue(forKey: "rate_limits") ?? root
-        guard let snapshot = Claude.snapshot(fromRateLimits: limits, observedAt: Date(), origin: .live) else {
+        guard let snapshot = Claude.snapshot(
+            fromRateLimits: limits, observedAt: Date(), origin: .live, plan: plan
+        ) else {
             throw QuotaError.malformed("Unrecognised response from Claude usage endpoint")
         }
         return snapshot

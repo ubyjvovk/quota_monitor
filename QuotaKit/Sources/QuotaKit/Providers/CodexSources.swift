@@ -211,9 +211,12 @@ public struct CodexLiveSource: QuotaSource {
     }
 
     public func fetch() async throws -> ProviderSnapshot {
+        // Scoped to `tokens` rather than searched recursively, so a future key
+        // elsewhere in the file can never be mistaken for the access token.
         guard let data = try? Data(contentsOf: authFile),
               let auth = try? JSONValue.parse(data),
-              let token = auth.firstValue(forKey: "access_token")?.string
+              let token = (auth["tokens"] ?? auth)["access_token"]?.string,
+              !token.isEmpty
         else {
             throw QuotaError.notConfigured("Sign in with `codex login` — no ChatGPT token in \(authFile.path)")
         }
@@ -225,7 +228,7 @@ public struct CodexLiveSource: QuotaSource {
         // The backend routes on these; without them it answers 404 rather than 401.
         request.setValue("codex_cli_rs", forHTTPHeaderField: "originator")
         request.setValue("codex_cli_rs/0.146.0", forHTTPHeaderField: "User-Agent")
-        if let accountID = auth.firstValue(forKey: "account_id")?.string {
+        if let accountID = (auth["tokens"] ?? auth)["account_id"]?.string {
             request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
         }
 

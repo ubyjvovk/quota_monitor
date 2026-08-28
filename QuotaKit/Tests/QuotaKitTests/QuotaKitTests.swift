@@ -506,3 +506,39 @@ private func atElapsed(_ fraction: Double) -> Date {
     #expect(provider.tightestWindow(asOf: afterReset)?.id == "seven_day")
     #expect(provider.sortedWindows(asOf: afterReset).first?.id == "seven_day")
 }
+
+// MARK: - Credential scoping
+
+@Test func claudeTokenIsReadFromItsOwnSubtreeNotAnMCPServers() throws {
+    // The real Keychain item stores Claude's OAuth beside `mcpOAuth`, a map of
+    // per-MCP-server credentials that each carry their own `accessToken`.
+    // A recursive key search returns an arbitrary one of these — in practice an
+    // empty string — and the request then authenticates as nothing.
+    let blob = """
+    {"claudeAiOauth":{"accessToken":"sk-ant-oat01-REAL","expiresAt":4102444800000,
+      "subscriptionType":"max","scopes":["user:inference"]},
+     "mcpOAuth":{"plugin:sales:clay|abc":{"accessToken":""},
+                 "plugin:marketing:canva|def":{"accessToken":"WRONG-TOKEN"}},
+     "trustedDeviceToken":"nope"}
+    """
+    let credentials = try Claude.credentials(from: try JSONValue.parse(Data(blob.utf8)))
+
+    #expect(credentials.token == "sk-ant-oat01-REAL")
+    #expect(credentials.plan == "max")
+    #expect(credentials.expiry != nil)
+}
+
+@Test func anEmptyClaudeTokenIsRejectedRatherThanSent() {
+    let blob = #"{"claudeAiOauth":{"accessToken":""},"mcpOAuth":{"x":{"accessToken":"other"}}}"#
+    #expect(throws: QuotaError.self) {
+        _ = try Claude.credentials(from: try JSONValue.parse(Data(blob.utf8)))
+    }
+}
+
+@Test func claudeCredentialsStillWorkWhenTheBlobIsAlreadyUnwrapped() throws {
+    // Tolerates a bare OAuth object, in case the storage layout changes.
+    let blob = #"{"accessToken":"sk-ant-oat01-BARE","subscriptionType":"pro"}"#
+    let credentials = try Claude.credentials(from: try JSONValue.parse(Data(blob.utf8)))
+    #expect(credentials.token == "sk-ant-oat01-BARE")
+    #expect(credentials.plan == "pro")
+}

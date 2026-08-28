@@ -59,3 +59,44 @@ let store = SnapshotStore()
 print("\nSnapshot store")
 print("  path            \(store.fileURL.path)")
 print("  widget-readable \(store.isSharedWithWidget ? "yes (App Group)" : "no — needs an App Group entitlement")")
+
+// --debug-auth: inspect the stored Claude credential without exposing it.
+// Prints key names, a short prefix and expiry only — never the token itself.
+if CommandLine.arguments.contains("--debug-auth") {
+    print("\nClaude credential")
+    do {
+        let raw = try Keychain.genericPassword(service: Claude.keychainService)
+        let json = try JSONValue.parse(raw)
+
+        if case .object(let top) = json {
+            print("  top-level keys   \(top.keys.sorted().joined(separator: ", "))")
+            for (name, value) in top {
+                if case .object(let inner) = value {
+                    print("  \(name) keys  \(inner.keys.sorted().joined(separator: ", "))")
+                }
+            }
+        }
+
+        let oauth = json["claudeAiOauth"] ?? json
+        if let token = (oauth["accessToken"] ?? oauth["access_token"])?.string, !token.isEmpty {
+            print("  token            present (\(token.count) chars)")
+        } else {
+            print("  token            NOT FOUND")
+        }
+
+        if let expiry = (oauth["expiresAt"] ?? oauth["expires_at"])?.date {
+            let expired = expiry <= Date()
+            print("  expiresAt        \(expiry) — \(expired ? "EXPIRED" : "valid")")
+        } else {
+            print("  expiresAt        not present (expiry check is being skipped)")
+        }
+
+        for key in ["scopes", "scope", "subscriptionType", "subscription_type"] {
+            if let value = oauth[key] ?? json.firstValue(forKey: key) {
+                print("  \(key)".padded(19) + "\(value.string ?? String(describing: value))")
+            }
+        }
+    } catch {
+        print("  unreadable: \(error.localizedDescription)")
+    }
+}
