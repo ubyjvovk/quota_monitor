@@ -1,0 +1,69 @@
+name: QuotaMonitor
+
+options:
+  bundleIdPrefix: dev.quotamonitor
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+
+packages:
+  QuotaKit:
+    path: QuotaKit
+
+# Signing lives in one file so enabling the widget is a three-line edit.
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: NO
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  QuotaMonitor:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: QuotaKit
+        product: QuotaKit
+      - target: QuotaWidget
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.quotamonitor.app
+        PRODUCT_NAME: Quota Monitor
+        CODE_SIGN_ENTITLEMENTS: App/QuotaMonitor$(QM_ENTITLEMENTS_VARIANT).entitlements
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        COMBINE_HIDPI_IMAGES: YES
+
+  QuotaWidget:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widget
+    dependencies:
+      - package: QuotaKit
+        product: QuotaKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.quotamonitor.app.widget
+        PRODUCT_NAME: QuotaWidget
+        CODE_SIGN_ENTITLEMENTS: Widget/QuotaWidget$(QM_ENTITLEMENTS_VARIANT).entitlements
+        INFOPLIST_FILE: Widget/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+
+schemes:
+  QuotaMonitor:
+    build:
+      targets:
+        QuotaMonitor: all
+    run:
+      config: Debug

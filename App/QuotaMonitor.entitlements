@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Not sandboxed: the app reads ~/.codex and ~/.quota-monitor, which a
+	     sandboxed process cannot reach.
+	     No App Group here, so this builds with ad-hoc signing and no Apple
+	     Developer account. See Config/Signing.xcconfig to enable the widget. -->
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

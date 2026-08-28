@@ -1,0 +1,14 @@
+{
+  "observed_at": "2026-07-31T19:40:00.000Z",
+  "subscription_type": "max",
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 63.4,
+      "resets_at": 1785790000
+    },
+    "seven_day": {
+      "used_percentage": 21.9,
+      "resets_at": 1786300000
+    }
+  }
+}

@@ -1,0 +1,25 @@
+// Signing configuration.
+//
+// DEFAULT (no Apple Developer account needed)
+//   Builds ad-hoc signed. The menu bar app works fully. The widget installs but
+//   shows "Open Quota Monitor", because a sandboxed widget can only read the
+//   app's snapshot through an App Group, and App Groups require a provisioning
+//   profile.
+//
+// TO ENABLE THE WIDGET
+//   1. Xcode ▸ Settings ▸ Accounts ▸ add your Apple ID (a free account works).
+//   2. Find your team id:  xcodebuild -showBuildSettings 2>/dev/null | grep TEAM
+//      or Xcode ▸ Settings ▸ Accounts ▸ your team ▸ Details.
+//   3. Replace the three values below, then re-run:  ./scripts/build.sh
+//
+//        DEVELOPMENT_TEAM = ABCDE12345
+//        CODE_SIGN_STYLE  = Automatic
+//        QM_ENTITLEMENTS_VARIANT = -AppGroup
+
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+
+// Empty selects the plain entitlements files; "-AppGroup" selects the variants
+// that declare group.dev.quotamonitor.shared.
+QM_ENTITLEMENTS_VARIANT =
