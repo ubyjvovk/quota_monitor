@@ -43,7 +43,7 @@ func (LiveSource) Origin() snapshot.Origin { return snapshot.OriginLive }
 func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	credentialsProvider := s.Credentials
 	if credentialsProvider == nil {
-		credentialsProvider = readCredentials
+		credentialsProvider = (CredentialStore{}).Read
 	}
 	blob, err := credentialsProvider()
 	if err != nil {
@@ -98,7 +98,21 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 }
 
 func readCredentials() ([]byte, error) {
-	path := DefaultCredentialPath()
+	return (CredentialStore{}).Read()
+}
+
+// CredentialStore reads and parses the credential file owned by the Kimi CLI.
+// An empty Path uses DefaultCredentialPath.
+type CredentialStore struct {
+	Path string
+}
+
+// Read returns the raw Kimi credential JSON.
+func (s CredentialStore) Read() ([]byte, error) {
+	path := s.Path
+	if path == "" {
+		path = DefaultCredentialPath()
+	}
 	blob, err := os.ReadFile(path)
 	if err == nil {
 		return blob, nil
@@ -107,4 +121,13 @@ func readCredentials() ([]byte, error) {
 		return nil, noTokenError()
 	}
 	return nil, source.Errorf(source.Transport, "Could not read Kimi credentials at %s: %v", path, err)
+}
+
+// Load returns the parsed Kimi credentials from the CLI-owned file.
+func (s CredentialStore) Load() (Credentials, error) {
+	blob, err := s.Read()
+	if err != nil {
+		return Credentials{}, err
+	}
+	return ParseCredentials(blob)
 }

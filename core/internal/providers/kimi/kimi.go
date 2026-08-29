@@ -3,8 +3,8 @@
 // The endpoint path is /usages (plural); the singular /usage and a dozen other
 // guessed routes are 404, and the /me route returns identity data including a
 // phone number that must never be ingested. The bearer token lives only 15
-// minutes and the Kimi TUI refreshes it on launch, so an expired token is an
-// authentication failure the user fixes by running `kimi`.
+// minutes; stale-token caching and any launch of the Kimi TUI are kept outside
+// the live source so this package never rotates the CLI-owned refresh token.
 package kimi
 
 import (

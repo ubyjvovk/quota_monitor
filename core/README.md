@@ -175,6 +175,19 @@ QuotaMon honours a small set of environment variables, all optional:
 - `DEEPINFRA_KEY` — DeepInfra API key, used when the config file's
   `deepinfra.api_key` is empty.
 
+## Caching and refresh
+
+QuotaMon saves each usable live reading as a private JSON file in the `cache/`
+directory beside `config.json` (normally `$XDG_CONFIG_HOME/quotamon/cache`, or
+`~/.config/quotamon/cache` when `XDG_CONFIG_HOME` is unset). When a provider's
+credential is stale by its own timestamp, QuotaMon reuses that reading without
+network access only while it is younger than the provider's shortest quota
+window and at least one recorded window has not reset. Pass `--fresh` to the
+default command, `snapshot`, or `waybar` to bypass this cache. For Kimi, a
+needed refresh briefly launches the Kimi CLI in a pseudo-terminal so Kimi can
+rotate and save its own credentials; QuotaMon never rotates Kimi tokens itself
+or calls the token endpoint directly.
+
 ## Waybar
 
 Add the custom module to the Waybar configuration:
@@ -264,8 +277,10 @@ percentage.
 The live source reads the Kimi CLI bearer token from
 `~/.kimi-code/credentials/kimi-code.json` (top-level `access_token` only — the
 blob also carries a refresh token and profile data). The token lives only 15
-minutes and the TUI refreshes it on launch; on an expired token it reports
-"Kimi sign-in expired — run `kimi` once".
+minutes and the TUI refreshes it on launch. QuotaMon normally keeps using a
+current cached reading while that token is stale; once a refresh is needed it
+briefly launches the TUI and then reads `/usages` with the newly persisted
+token.
 
 Usage comes from `GET https://api.kimi.com/coding/v1/usages` — note the
 **plural**; the singular route is 404. The `usage` object is the weekly pool
