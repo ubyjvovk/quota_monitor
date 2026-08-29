@@ -69,19 +69,25 @@ their UI elsewhere — and workers are told not to touch `App/`, `Widget/`, or
   `live` (no Keychain prompt) and the previously-missed `Fable wk 20.0%`
   scoped window now appears as the most constrained reading.
 
-## Next actions (phase 1 complete — these await the human's call)
-1. **Codex/ChatGPT live source returns HTTP 404.** Local rollout still works.
-   Needs endpoint research; deliberately not a C2 ticket.
-2. **Credits display overstates headroom.** `spend` maps to
-   `credits.balance` = limit - used, so a `max` account renders
-   `credits 20.00 remaining` even though the same payload says
-   `spend.enabled: false` / `disabled_reason: "out_of_credits"` (credits are
-   not actually usable). My spec for T-0003 asked for exactly this, so the
-   worker was correct; the *spec* was wrong. Fix: honour `enabled` before
-   showing a balance.
-3. Optional: surface `severity` / `is_active` from the `limits` array — the
-   endpoint marks which window is the binding one, and we currently ignore it.
-4. Mac app/widget remain ON HOLD pending the human's UI work.
+## Next actions
+**Phase 2 complete for the providers we can reach.** ChatGPT quota is now
+sourced honestly from rollouts (T-0004) and extra-usage credits are reported
+correctly for both Claude and ChatGPT (T-0005). 60 tests, board drained.
+
+Blocked on the human — see "Provider research" below for the detail:
+1. **Grok** — open the billing/credits view in the Grok TUI once, then grep
+   `~/.grok/logs/unified.jsonl` for the billing URL.
+2. **Kimi** — run `kimi` once to refresh the expired token, then probe
+   `/coding/v1/me` and capture a fixture.
+3. **DeepInfra** — need to know where the tool should read the key from.
+
+Then, per provider: capture a real response as a committed fixture (sanitised),
+add a source + register it in `ProviderCatalog.all`, and ticket it C2.
+
+Also still open (low priority):
+4. Surface `severity` / `is_active` from Claude's `limits` array — the endpoint
+   marks which window is binding and we ignore it.
+5. Mac app/widget remain ON HOLD pending the human's UI work.
 
 ## How to resume
 1. Read this file.
