@@ -16,9 +16,10 @@ import (
 // stdout are injected so the whole flow can be scripted in tests; the findings
 // source is injected for the same reason (never touch the real Keychain).
 //
-// With yes set it writes without reading stdin at all: it enables exactly what
-// discovery found (plus whatever is already enabled on disk from an earlier
-// run) and takes keys from the environment only, never prompting.
+// With yes set it writes without reading stdin at all: it enables every found
+// supported provider (plus whatever a stale off entry would otherwise keep a
+// newly supported, found provider pinned off), keeps existing choices and
+// keys, and takes new keys from the environment only, never prompting.
 func runSetup(stdin io.Reader, stdout, stderr io.Writer, yes bool, allFindings func() []discover.Finding) int {
 	findings := allFindings()
 
@@ -47,24 +48,30 @@ func runSetup(stdin io.Reader, stdout, stderr io.Writer, yes bool, allFindings f
 			defaultEnabled = finding.Found
 		}
 
-		enabled := defaultEnabled
-		if !yes {
-			enabled = resolveYesNo(ask(scanner, stdout, enablePrompt(finding.DisplayName, defaultEnabled)), defaultEnabled)
-		}
-		provider.Enabled = enabled
-		newConfig.Providers[finding.ID] = provider
-
-		if enabled && finding.NeedsKey && provider.APIKey == "" && !yes {
-			// A keyless DeepInfra would only fail at fetch time, so an empty
-			// answer means "leave it off" rather than saving a broken provider.
-			answer := ask(scanner, stdout, finding.DisplayName+" API key (input hidden is not available; paste and press Enter): ")
-			if answer == "" {
-				provider.Enabled = false
-			} else {
-				provider.APIKey = answer
+		if yes {
+			// Adopt every found supported provider even when an earlier config
+			// wrote an explicit off entry for it (Kimi before it was supported),
+			// while keeping a manually enabled provider with a stored key.
+			provider.Enabled = finding.Found || provider.Enabled
+		} else {
+			enabled := resolveYesNo(ask(scanner, stdout, enablePrompt(finding.DisplayName, defaultEnabled)), defaultEnabled)
+			provider.Enabled = enabled
+			if enabled && finding.NeedsKey && provider.APIKey == "" {
+				// A keyless DeepInfra would only fail at fetch time, so an empty
+				// answer means "leave it off" rather than saving a broken provider.
+				answer := ask(scanner, stdout, finding.DisplayName+" API key (input hidden is not available; paste and press Enter): ")
+				if answer == "" {
+					provider.Enabled = false
+				} else {
+					provider.APIKey = answer
+				}
 			}
-			newConfig.Providers[finding.ID] = provider
 		}
+		newConfig.Providers[finding.ID] = provider
+	}
+
+	if yes {
+		fmt.Fprintln(stdout, "Enabled every provider that was found; run without --yes to choose.")
 	}
 
 	if !yes {

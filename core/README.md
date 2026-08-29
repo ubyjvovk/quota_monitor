@@ -153,9 +153,12 @@ wizard says so. Setup is re-runnable: it starts from the existing file, so
 pasted keys and manual choices survive.
 
 `quotamon setup --yes` performs the same discovery but skips every prompt: it
-enables exactly what was found (plus what is already enabled on disk) and
-takes keys from the environment only — DeepInfra's key is the `DEEPINFRA_KEY`
-variable — so it is safe to run non-interactively. `quotamon providers` prints
+enables every found supported provider (even one whose config entry was
+explicitly off before it was supported), keeps whatever is already enabled on
+disk, and takes keys from the environment only — DeepInfra's key is the
+`DEEPINFRA_KEY` variable — so it is safe to run non-interactively. To leave a
+found provider off, run without `--yes` or edit the config file.
+`quotamon providers` prints
 the same table plus an `on`/`off` column read from the config, and exits `3`
 with the setup hint when the config file does not exist yet.
 

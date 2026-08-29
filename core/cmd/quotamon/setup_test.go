@@ -66,6 +66,9 @@ func TestSetupWritesTheExpectedConfigFromScriptedStdinAndProtectsIt(t *testing.T
 	if !cfg.Providers["deepinfra"].Enabled || cfg.Providers["deepinfra"].APIKey != "abc123" {
 		t.Errorf("deepinfra = %#v, want enabled with api_key abc123", cfg.Providers["deepinfra"])
 	}
+	if _, ok := cfg.Providers["kimi"]; ok {
+		t.Errorf("unsupported kimi got a config entry: %#v", cfg.Providers["kimi"])
+	}
 
 	if runtime.GOOS != "windows" {
 		info, err := os.Stat(config.Path())
@@ -131,6 +134,48 @@ func TestSetupYesOnAFreshRunEnablesOnlyWhatWasFoundWithoutAKeyPrompt(t *testing.
 	// DeepInfra was not found, so --yes never prompts for a key and leaves it off.
 	if cfg.Providers["deepinfra"].Enabled || cfg.Providers["deepinfra"].APIKey != "" {
 		t.Errorf("deepinfra = %#v, want disabled with no key", cfg.Providers["deepinfra"])
+	}
+}
+
+// kimiSupportedFindings mirrors stubFindings but treats Kimi as supported and
+// found, the state after Kimi shipped with credentials present.
+func kimiSupportedFindings() []discover.Finding {
+	findings := stubFindings()
+	for i := range findings {
+		if findings[i].ID == "kimi" {
+			findings[i].Supported = true
+		}
+	}
+	return findings
+}
+
+// A config written before Kimi was supported pins it off; now that it is found
+// and supported, setup --yes must adopt it (override the stale false) and say so
+// in its output rather than silently leaving it off.
+func TestSetupYesAdoptsANewlySupportedFoundProviderWhoseEntryWasOff(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("QUOTA_MONITOR_DIR", directory)
+	stale := config.Config{Version: 1, Providers: map[string]config.Provider{"kimi": {Enabled: false}}}
+	if err := stale.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runSetup(noReadReader{t: t}, &stdout, &stderr, true, kimiSupportedFindings)
+	if exit != 0 {
+		t.Fatalf("setup --yes exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Enabled every provider that was found; run without --yes to choose.") {
+		t.Fatalf("setup --yes stdout = %q, want the run-without---yes line", stdout.String())
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Providers["kimi"].Enabled {
+		t.Errorf("kimi enabled = %v, want true after --yes", cfg.Providers["kimi"].Enabled)
 	}
 }
 
