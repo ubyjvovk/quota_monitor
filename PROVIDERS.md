@@ -348,9 +348,12 @@ GET https://api.deepinfra.com/payment/checklist
    "overdue_invoices": 0.0, "billing_type": "balance", "topup": false, …}
 ```
 
-Verified **200**. `stripe_balance` is USD; **negative = funds ready to spend,
-positive = money owed** (from the OpenAPI description). `recent` is recent
-spend in USD, `limit` the spending limit (null = none), `suspended` /
+Verified **200**. `stripe_balance` is USD; **negative = funds on account,
+positive = money owed** (from the OpenAPI description). `recent` is usage
+not yet invoiced against that balance, in USD. **The remaining balance the
+dashboard shows is `|stripe_balance| − recent`** — on this account 18.00 −
+7.97 = 10.03, matching the dashboard's "$10.03 prepaid credits" (user
+verified 2026-08-29). Don't present `stripe_balance` alone as "remaining". `limit` the spending limit (null = none), `suspended` /
 `suspend_reason` / `overdue_invoices` are actionable status. Fixture:
 `deepinfra-checklist.json` (money fields only).
 
