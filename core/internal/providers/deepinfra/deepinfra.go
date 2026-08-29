@@ -29,6 +29,10 @@ type Balance struct {
 	// Stripe is the prepaid balance in USD: negative is funds ready to spend,
 	// positive is money owed, zero means no prepaid funds.
 	Stripe float64
+	// Recent is the not-yet-invoiced usage in USD that will be debited from
+	// Stripe once the usage invoice is issued, so the spendable headroom is
+	// -Stripe - Recent rather than the raw Stripe figure.
+	Recent float64
 	// Known reports whether the checklist was read successfully. When false the
 	// spend-only fallback is used because there is no balance to trust.
 	Known bool
@@ -56,22 +60,24 @@ func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time
 	}
 
 	if balance.Known {
+		// stripe_balance is funds on account BEFORE the not-yet-invoiced usage in
+		// recent; credit is debited only when the usage invoice is issued, so the
+		// spendable headroom is -Stripe - Recent (the dashboard's "remaining").
+		remaining := -balance.Stripe - balance.Recent
 		switch {
-		case balance.Stripe < 0:
-			// Negative stripe_balance is funds ready to spend; report the absolute
-			// value as spendable headroom.
-			prepaid := fmt.Sprintf("$%.2f", -balance.Stripe)
+		case remaining > 0:
+			prepaid := fmt.Sprintf("$%.2f", remaining)
 			credits.HasCredits = true
 			credits.Unlimited = false
 			credits.Balance = &prepaid
-		case balance.Stripe == 0:
+		case remaining == 0:
 			zero := "$0.00"
 			credits.HasCredits = false
 			credits.Unlimited = false
 			credits.Balance = &zero
 		default:
-			// Positive stripe_balance is money owed to DeepInfra, not headroom.
-			owed := fmt.Sprintf("$%.2f owed", balance.Stripe)
+			// A negative remaining balance is money owed to DeepInfra, not headroom.
+			owed := fmt.Sprintf("$%.2f owed", -remaining)
 			credits.HasCredits = false
 			credits.Unlimited = false
 			credits.Balance = &owed

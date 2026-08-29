@@ -269,19 +269,19 @@ func TestStripeBalanceMappings(t *testing.T) {
 		wantBalance string
 	}{
 		{
-			name:        "negative balance is prepaid headroom",
-			balance:     Balance{Known: true, Stripe: -18.0},
-			wantCredits: true, wantBalance: "$18.00",
+			name:        "spendable balance is account funds minus recent usage",
+			balance:     Balance{Known: true, Stripe: -18.0, Recent: 7.97},
+			wantCredits: true, wantBalance: "$10.03",
 		},
 		{
-			name:        "positive balance is money owed",
-			balance:     Balance{Known: true, Stripe: 5.0},
-			wantCredits: false, wantBalance: "$5.00 owed",
+			name:        "owed balance sums account debt and recent usage",
+			balance:     Balance{Known: true, Stripe: 5.0, Recent: 2.0},
+			wantCredits: false, wantBalance: "$7.00 owed",
 		},
 		{
-			name:        "zero balance reports no credits",
-			balance:     Balance{Known: true, Stripe: 0},
-			wantCredits: false, wantBalance: "$0.00",
+			name:        "remaining funds down to cents still report spendable headroom",
+			balance:     Balance{Known: true, Stripe: -8.0, Recent: 7.97},
+			wantCredits: true, wantBalance: "$0.03",
 		},
 	}
 	for _, test := range tests {
@@ -296,8 +296,8 @@ func TestStripeBalanceMappings(t *testing.T) {
 }
 
 func TestSuspendedAndOverdueInvoicesSetActionableStatus(t *testing.T) {
-	suspended := Snapshot(-1, false, 7.75, nil, observedAt, Balance{Known: true, Stripe: -18.0, Suspended: true, SuspendReason: "unpaid balance"})
-	assertPrepaidCredits(t, suspended.Credits, true, "$18.00", false, "$7.75 this month")
+	suspended := Snapshot(-1, false, 7.75, nil, observedAt, Balance{Known: true, Stripe: -18.0, Recent: 7.97, Suspended: true, SuspendReason: "unpaid balance"})
+	assertPrepaidCredits(t, suspended.Credits, true, "$10.03", false, "$7.75 this month")
 	if suspended.Status.State != "failed" || !strings.Contains(suspended.Status.Message, "suspended") || !strings.Contains(suspended.Status.Message, "unpaid balance") {
 		t.Fatalf("Snapshot().Status = %#v, want failed with suspend reason", suspended.Status)
 	}
@@ -336,7 +336,7 @@ func TestLiveSourceCombinesPrepaidBalanceAndSpend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPrepaidCredits(t, provider.Credits, true, "$18.00", true, "$7.75 this month")
+	assertPrepaidCredits(t, provider.Credits, true, "$10.03", true, "$7.75 this month")
 	if len(provider.Windows) != 0 {
 		t.Fatalf("Fetch().Windows = %#v, want none with a negative limit", provider.Windows)
 	}

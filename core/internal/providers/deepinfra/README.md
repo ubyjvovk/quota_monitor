@@ -29,12 +29,17 @@ money/status fields (`stripe_balance`, `suspended`, `suspend_reason`,
 `overdue_invoices`, `recent`, `limit`, `billing_type`, `topup`) and never
 retain the body. The encoded snapshot must never contain the address.
 
-QuotaMon fetches all three endpoints concurrently. Mapping:
+QuotaMon fetches all three endpoints concurrently. Mapping (balance = the
+`remaining` figure the dashboard shows):
 
-- `stripe_balance < 0` → spendable balance `"$X.XX"`, `HasCredits: true`,
+- `remaining = −stripe_balance − recent` — `stripe_balance` is funds on
+  account **before** the not-yet-invoiced usage in `recent`; credit is debited
+  only when the usage invoice is issued, so the spendable headroom subtracts
+  `recent` (worked example in `PROVIDERS.md`).
+- `remaining > 0` → spendable balance `"$X.XX"`, `HasCredits: true`,
   `Enabled: !suspended`.
-- `stripe_balance == 0` → `"$0.00"`, `HasCredits: false`.
-- `stripe_balance > 0` → `"$X.XX owed"`, `HasCredits: false`.
+- `remaining == 0` → `"$0.00"`, `HasCredits: false`.
+- `remaining < 0` → `"$X.XX owed"`, `HasCredits: false`.
 - Checklist failed but usage succeeded → the spend-only fallback with a
   "Balance unavailable" `NeedsSetup` status, so a balance outage never hides
   month-to-date spend.

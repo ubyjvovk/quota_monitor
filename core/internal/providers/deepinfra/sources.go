@@ -178,6 +178,11 @@ func balanceFromChecklist(checklist any) Balance {
 			balance.Stripe = amount
 		}
 	}
+	if value, found := jsonx.Get(checklist, "recent"); found {
+		if amount, valid := jsonx.Float(value); valid {
+			balance.Recent = amount
+		}
+	}
 	if value, found := jsonx.Get(checklist, "suspended"); found {
 		if suspended, valid := jsonx.Bool(value); valid {
 			balance.Suspended = suspended

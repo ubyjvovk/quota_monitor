@@ -88,7 +88,7 @@ DeepInfra    pay-as-you-go  live · just now
 func TestRenderTableShowsBalanceAndSpendForPrepaidDeepInfra(t *testing.T) {
 	now := time.Date(2026, 8, 29, 19, 0, 0, 0, time.UTC)
 	payAsYouGoPlan := "pay-as-you-go"
-	balance := "$18.00"
+	balance := "$10.03"
 	spend := "$7.75 this month"
 	input := snapshot.Snapshot{Providers: []snapshot.Provider{
 		{
@@ -99,7 +99,7 @@ func TestRenderTableShowsBalanceAndSpendForPrepaidDeepInfra(t *testing.T) {
 	}}
 
 	got := renderTable(input, now)
-	if !strings.Contains(got, "  balance   $18.00 remaining") {
+	if !strings.Contains(got, "  balance   $10.03 remaining") {
 		t.Fatalf("renderTable() missing balance row:\n%s", got)
 	}
 	if !strings.Contains(got, "  spend     $7.75 this month") {

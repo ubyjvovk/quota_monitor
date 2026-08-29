@@ -84,8 +84,8 @@ func TestRenderWaybarRendersWindowlessDeepInfraCreditsInTooltip(t *testing.T) {
 	}{
 		{
 			name:    "prepaid balance and spend are two lines",
-			credits: snapshot.Credits{HasCredits: true, Unlimited: false, Balance: stringPointer("$18.00"), Enabled: true, Spend: stringPointer("$7.75 this month")},
-			want:    []string{"  balance   $18.00 remaining", "  spend     $7.75 this month"},
+			credits: snapshot.Credits{HasCredits: true, Unlimited: false, Balance: stringPointer("$10.03"), Enabled: true, Spend: stringPointer("$7.75 this month")},
+			want:    []string{"  balance   $10.03 remaining", "  spend     $7.75 this month"},
 		},
 		{
 			name:    "spend only keeps a single spend line",
