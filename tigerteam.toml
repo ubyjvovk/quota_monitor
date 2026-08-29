@@ -74,7 +74,7 @@ capabilities = ["frontier"]
 [worker.ds]
 engine = "pi"
 max_complexity = 2  # new model (2026-08-17): C2 until it earns C3
-model = "deepseek-ai/DeepSeek-V4-Flash-0731"  # GLM-5.3 retired provider-side 2026-08-17
+model = "deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731"  # GLM-5.3 retired provider-side 2026-08-17
 env_passthrough = ["DEEPINFRA_KEY"]
 scale = 2
 
