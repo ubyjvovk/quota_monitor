@@ -7,6 +7,7 @@ import (
 	"quotamon/internal/hybrid"
 	"quotamon/internal/providers/claude"
 	"quotamon/internal/providers/codex"
+	"quotamon/internal/providers/deepinfra"
 	"quotamon/internal/providers/grok"
 	"quotamon/internal/source"
 )
@@ -61,6 +62,13 @@ func All(options Options) []hybrid.Provider {
 			Local:       nil,
 			Live:        grok.LiveSource{},
 			LiveEnabled: liveEnabled(grok.ProviderID),
+		},
+		{
+			ID:          deepinfra.ProviderID,
+			DisplayName: deepinfra.DisplayName,
+			Local:       nil,
+			Live:        deepinfra.LiveSource{},
+			LiveEnabled: liveEnabled(deepinfra.ProviderID),
 		},
 	}
 }

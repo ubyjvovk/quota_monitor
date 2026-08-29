@@ -64,3 +64,16 @@ func waybarProvider(id, displayName string, percent float64, now time.Time) snap
 		Origin:     snapshot.OriginLive, Status: snapshot.OK(),
 	}
 }
+
+func TestRenderWaybarRendersAWindowlessDeepInfraAsDash(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	provider := waybarProvider("deepinfra", "DeepInfra", 0, now)
+	provider.Plan = nil
+	provider.Windows = []snapshot.Window{}
+
+	got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
+
+	if got.Text != "DI —" {
+		t.Fatalf("renderWaybar().Text = %q, want the DI short name with a dash", got.Text)
+	}
+}
