@@ -39,13 +39,12 @@ func Path() string {
 	return filepath.Join(home, ".config", "quotamon", "config.json")
 }
 
-// Default returns version 1 configuration with every known provider disabled.
+// Default returns version 1 configuration with no provider entries. Setup is
+// what decides which providers get entries, so this starts empty rather than
+// pinning every known provider (or an unsupported one like Kimi before it
+// shipped) off.
 func Default() Config {
-	providers := make(map[string]Provider, 5)
-	for _, id := range []string{"claude", "codex", "grok", "deepinfra", "kimi"} {
-		providers[id] = Provider{Enabled: false}
-	}
-	return Config{Version: 1, Providers: providers}
+	return Config{Version: 1, Providers: make(map[string]Provider)}
 }
 
 // Load reads the mandatory configuration. On non-Windows systems, a config

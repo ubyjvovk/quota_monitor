@@ -14,6 +14,8 @@ func TestSaveThenLoadRoundTripsWithPrivateStableJSON(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("QUOTA_MONITOR_DIR", directory)
 	input := Default()
+	// Default starts empty; add the providers this test checks the order of.
+	input.Providers["claude"] = Provider{Enabled: true}
 	input.Providers["codex"] = Provider{Enabled: true, Live: "app-server"}
 	input.Providers["deepinfra"] = Provider{Enabled: true, APIKey: "secret"}
 
@@ -81,5 +83,37 @@ func TestQuotaMonitorDirectoryOverridesTheConfigPath(t *testing.T) {
 	t.Setenv("HOME", filepath.Join(t.TempDir(), "home"))
 	if got, want := Path(), filepath.Join(directory, "config.json"); got != want {
 		t.Fatalf("Path() = %q, want %q", got, want)
+	}
+}
+
+// Default offers no provider entries so setup (not a hard-coded list) decides
+// which providers appear in the file, and so an unsupported provider like Kimi
+// is never pinned off before it ships.
+func TestDefaultHasNoProviderEntries(t *testing.T) {
+	if got := len(Default().Providers); got != 0 {
+		t.Fatalf("Default().Providers has %d entries, want 0", got)
+	}
+}
+
+// Load must tolerate an entry for a provider the registry does not know yet so
+// an older config keeps working once a provider ships (or is removed) and setup
+// can still read and rewrite it.
+func TestLoadIgnoresAnUnknownProviderEntry(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("QUOTA_MONITOR_DIR", directory)
+	path := filepath.Join(directory, "config.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"providers":{"nope":{"enabled":true},"claude":{"enabled":true}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want the unknown id ignored", err)
+	}
+	if !result.Providers["claude"].Enabled {
+		t.Errorf("claude enabled = %v, want true", result.Providers["claude"].Enabled)
+	}
+	if !result.Providers["nope"].Enabled {
+		t.Errorf("unknown id was dropped by Load: %#v", result.Providers)
 	}
 }
