@@ -77,6 +77,15 @@ func providerTooltip(provider snapshot.Provider, now time.Time) string {
 		}
 		lines = append(lines, "  "+window.Label+"  "+used+"  "+reset)
 	}
+	if len(provider.Windows) == 0 && provider.Credits != nil {
+		balance := ""
+		if provider.Credits.Balance != nil {
+			balance = *provider.Credits.Balance
+		} else if provider.Credits.Unlimited {
+			balance = "unlimited"
+		}
+		lines = append(lines, "  "+balance)
+	}
 	if provider.Status.State != "ok" {
 		status := provider.Status.Message
 		if status == "" {
