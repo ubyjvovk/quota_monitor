@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"quotamon/internal/config"
 	"quotamon/internal/hybrid"
 	"quotamon/internal/registry"
 	"quotamon/internal/snapshot"
@@ -25,6 +26,8 @@ Commands:
   snapshot  Print the normalized quota snapshot as JSON
   waybar    Print a one-line Waybar custom-module payload
   check     Probe each provider source independently
+  setup     (not implemented yet) configure providers interactively
+  providers (not implemented yet) list providers and their configuration
 
 Options:
   --no-live  Skip live sources
@@ -54,7 +57,23 @@ func runWithFactory(args []string, stdout, stderr io.Writer, now func() time.Tim
 		return 2
 	}
 
-	configured := providers(registry.Options{LiveEnabled: func(string) bool { return liveEnabled }})
+	// setup and providers are stubs until T-0019; they must not require a
+	// config file, because setup is exactly how a user creates one.
+	if command == "setup" || command == "providers" {
+		fmt.Fprintf(stderr, "%s: not implemented\n", command)
+		return 2
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		if errors.Is(err, config.ErrMissing) {
+			return reportMissingConfig(command, stdout, stderr)
+		}
+		fmt.Fprintf(stderr, "config: %v\n", err)
+		return 3
+	}
+
+	configured := providers(registry.Options{LiveEnabled: func(string) bool { return liveEnabled }, Config: cfg})
 	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)
 	defer cancel()
 
@@ -87,6 +106,19 @@ func runWithFactory(args []string, stdout, stderr io.Writer, now func() time.Tim
 	}
 }
 
+// reportMissingConfig tells the user how to create the mandatory file. The
+// JSON-only frontends get a machine-readable payload; the rest get a hint on
+// stderr. Exits differ because Waybar treats a missing config as "safe to
+// show the run-setup message", not as a failure.
+func reportMissingConfig(command string, stdout, stderr io.Writer) int {
+	if command == "waybar" {
+		fmt.Fprintln(stdout, "{\"text\":\"quota: run setup\",\"tooltip\":\"Run `quotamon setup` in a terminal\",\"class\":\"unavailable\",\"percentage\":0}")
+		return 0
+	}
+	fmt.Fprintln(stderr, "No config yet — run: quotamon setup")
+	return 3
+}
+
 func parseArguments(args []string) (command string, liveEnabled, help, valid bool) {
 	if len(args) == 0 {
 		return "table", true, false, true
@@ -108,7 +140,7 @@ func parseArguments(args []string) (command string, liveEnabled, help, valid boo
 		}
 		return "", true, false, false
 	}
-	if args[0] != "snapshot" && args[0] != "waybar" && args[0] != "check" {
+	if args[0] != "snapshot" && args[0] != "waybar" && args[0] != "check" && args[0] != "setup" && args[0] != "providers" {
 		return "", true, false, false
 	}
 	if len(args) == 1 {

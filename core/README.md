@@ -27,6 +27,8 @@ quotamon --json [--no-live]
 quotamon snapshot [--no-live]
 quotamon waybar [--no-live]
 quotamon check [--no-live]
+quotamon setup          # interactive wizard (T-0019)
+quotamon providers      # list providers and their configuration (T-0019)
 ```
 
 The bare invocation fetches every provider and prints the human-readable table
@@ -56,7 +58,53 @@ Exit codes are:
   `waybar` or `check` writes its output, or when help is requested;
 - `1` when the table or `snapshot` finds no provider windows, or when output
   encoding fails;
-- `2` for an unknown command, flag, or extra argument.
+- `2` for an unknown command, flag, or extra argument;
+- `3` when the mandatory config file is absent or unreadable (except `waybar`,
+  which renders a run-setup payload and exits `0`).
+
+## Configuration
+
+QuotaMon reads a single mandatory JSON config file that every frontend shares.
+The path is, in order of precedence:
+
+1. `$QUOTA_MONITOR_DIR/config.json` when that variable is set;
+2. `$XDG_CONFIG_HOME/quotamon/config.json`;
+3. `~/.config/quotamon/config.json` (on every operating system).
+
+There is no default-on configuration: without the file every command except
+`--help`, `setup`, and `providers` tells you to run `quotamon setup` (and the
+`waybar` module renders a run-setup message instead of failing).
+
+The file is versioned and lists each provider with its settings and an `enabled`
+flag:
+
+```json
+{
+  "version": 1,
+  "providers": {
+    "claude": { "enabled": true },
+    "codex": { "enabled": true, "live": "app-server" },
+    "grok": { "enabled": true },
+    "deepinfra": { "enabled": true, "api_key": "your-key" },
+    "kimi": { "enabled": false }
+  }
+}
+```
+
+`codex.live` selects its quota route: `"app-server"` (default), `"http"`, or
+`"off"`. `deepinfra.api_key` supplies the DeepInfra key directly; when it is
+empty the provider falls back to the `DEEPINFRA_KEY` environment variable.
+
+API keys may live in the file, but the config is always written with `0600`
+permissions, and a config that contains an `api_key` while carrying group or
+other read bits is refused with a message telling you to run `chmod 600 <path>`.
+Every command before `setup` demands the file be private; `setup` is how you
+create it.
+
+A missing config exits `3` with `No config yet — run: quotamon setup` on
+stderr. `waybar` exits `0` and prints
+`{"text":"quota: run setup","tooltip":"Run `quotamon setup` in a terminal","class":"unavailable","percentage":0}`
+so the module shows a friendly message instead of disappearing.
 
 ## Waybar
 

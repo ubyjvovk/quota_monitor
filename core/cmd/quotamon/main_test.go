@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -35,6 +37,7 @@ func (s commandStubSource) Fetch(context.Context) (snapshot.Provider, error) {
 }
 
 func TestSnapshotCommandPrintsFetchedProvidersAndUsesWindowExitStatus(t *testing.T) {
+	setupValidConfig(t)
 	now := time.Date(2026, 8, 29, 18, 59, 59, 741_925_000, time.UTC)
 	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
 	configured := []hybrid.Provider{{
@@ -69,6 +72,7 @@ func TestSnapshotCommandPrintsFetchedProvidersAndUsesWindowExitStatus(t *testing
 }
 
 func TestDefaultCommandPrintsTableAndUsesWindowExitStatus(t *testing.T) {
+	setupValidConfig(t)
 	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
 	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
 	configured := []hybrid.Provider{{
@@ -91,6 +95,7 @@ func TestDefaultCommandPrintsTableAndUsesWindowExitStatus(t *testing.T) {
 }
 
 func TestJSONFlagIsAnAliasForSnapshot(t *testing.T) {
+	setupValidConfig(t)
 	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
 	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
 	configured := []hybrid.Provider{{
@@ -113,6 +118,7 @@ func TestJSONFlagIsAnAliasForSnapshot(t *testing.T) {
 }
 
 func TestWaybarCommandPrintsExactlyOneJSONLineWithFourKeys(t *testing.T) {
+	setupValidConfig(t)
 	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
 	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
 	configured := []hybrid.Provider{{
@@ -141,6 +147,7 @@ func TestWaybarCommandPrintsExactlyOneJSONLineWithFourKeys(t *testing.T) {
 }
 
 func TestCheckReportsEachSourceAndAlwaysSucceeds(t *testing.T) {
+	setupValidConfig(t)
 	plan := "max"
 	localProvider := commandProvider("claude", "Claude", 43, time.Now().Add(time.Hour))
 	localProvider.Plan = &plan
@@ -162,6 +169,7 @@ func TestCheckReportsEachSourceAndAlwaysSucceeds(t *testing.T) {
 }
 
 func TestNoLiveNeverProbesTheLiveSourceAndLabelsItSkipped(t *testing.T) {
+	setupValidConfig(t)
 	var liveCalls atomic.Int32
 	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
 	configured := []hybrid.Provider{{
@@ -182,6 +190,7 @@ func TestNoLiveNeverProbesTheLiveSourceAndLabelsItSkipped(t *testing.T) {
 }
 
 func TestCheckWithNoLiveShowsALiveOnlyProviderAsSkippedWithoutALocalLine(t *testing.T) {
+	setupValidConfig(t)
 	configured := []hybrid.Provider{{
 		ID: "grok", DisplayName: "Grok",
 		// Local is nil for a live-only provider, mirroring the registry.
@@ -228,6 +237,43 @@ func TestHelpFormsListEveryCommandOnStandardOutput(t *testing.T) {
 	}
 }
 
+func TestCommandsWithoutAConfigFilePrintTheSetupHintOrWaybarPayload(t *testing.T) {
+	t.Setenv("QUOTA_MONITOR_DIR", t.TempDir())
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if exit := runWithFactory([]string{"snapshot"}, &stdout, &stderr, time.Now, fixedFactory(nil)); exit != 3 {
+		t.Fatalf("snapshot without config exit = %d, want 3", exit)
+	}
+	if !strings.Contains(stderr.String(), "run: quotamon setup") || stdout.Len() != 0 {
+		t.Fatalf("snapshot without config stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if exit := runWithFactory([]string{"waybar"}, &stdout, &stderr, time.Now, fixedFactory(nil)); exit != 0 {
+		t.Fatalf("waybar without config exit = %d, want 0", exit)
+	}
+	want := `{"text":"quota: run setup","tooltip":"Run ` + "`quotamon setup`" + ` in a terminal","class":"unavailable","percentage":0}` + "\n"
+	if stdout.String() != want || stderr.Len() != 0 {
+		t.Fatalf("waybar without config stdout = %q, stderr = %q, want %q", stdout.String(), stderr.String(), want)
+	}
+}
+
+func TestSetupAndProvidersStubsPrintNotImplemented(t *testing.T) {
+	for _, command := range []string{"setup", "providers"} {
+		t.Setenv("QUOTA_MONITOR_DIR", t.TempDir())
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		if exit := runWithFactory([]string{command}, &stdout, &stderr, time.Now, fixedFactory(nil)); exit != 2 {
+			t.Fatalf("%s exit = %d, want 2", command, exit)
+		}
+		if !strings.Contains(stderr.String(), "not implemented") {
+			t.Fatalf("%s stderr = %q, want not implemented", command, stderr.String())
+		}
+	}
+}
+
 func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 	tests := []struct {
 		name string
@@ -249,6 +295,18 @@ func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 				t.Fatalf("run(%q) = exit %d, stdout %q, stderr %q", test.args, exit, stdout.String(), stderr.String())
 			}
 		})
+	}
+}
+
+// setupValidConfig points QUOTA_MONITOR_DIR at a temp directory holding a
+// valid (empty) config so that commands reach fetching instead of the missing-
+// config path; the stub factory ignores the config's provider contents.
+func setupValidConfig(t *testing.T) {
+	t.Helper()
+	directory := t.TempDir()
+	t.Setenv("QUOTA_MONITOR_DIR", directory)
+	if err := os.WriteFile(filepath.Join(directory, "config.json"), []byte(`{"version":1,"providers":{}}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
