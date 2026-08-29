@@ -15,8 +15,9 @@ test_cmd = "bash scripts/test-all.sh"
 # ui_port = 8383
 
 [workers]
-max_concurrent = 4              # host capacity; reference host: 12 cores -> 4-5
-# env_passthrough = ["DEEPINFRA_KEY"]   # names only, never values
+max_concurrent = 6              # host capacity; reference host: 12 cores -> 4-5
+env_passthrough = ["DEEPINFRA_KEY"]   # names only, never values
+
 # engine = "claude"
 # model = "glm-5.2"
 # base_url = "https://api.z.ai/api/anthropic"
@@ -28,15 +29,72 @@ max_concurrent = 4              # host capacity; reference host: 12 cores -> 4-5
 
 # Worker profiles (SPEC §3.3). Uncomment and edit for your fleet:
 #
+
+# [worker.codex]
+# engine = "codex"
+# max_complexity = 2
+# ticket_timeout_s = 3600
+# scale=2
+
+# [worker.grok]
+# engine = "grok"
+# max_complexity = 2
+# ticket_timeout_s = 3600
+
+# [worker.grok]
+# engine = "grok"
+# max_complexity = 2
+# ticket_timeout_s = 3600
+
+# -------------------
+
 [worker.codex]
 engine = "codex"
-max_complexity = 2
-ticket_timeout_s = 3600
+model = "gpt-5.6-sol"
+max_complexity = 3
+capabilities = ["frontier"]  # reserved tier tag, DECISIONS 2026-08-25
+ticket_timeout_s = 5400
+scale = 2
 
 [worker.grok]
 engine = "grok"
+max_complexity = 3
+scale = 2
+
+[worker.luna]
+engine = "codex"
+model = "gpt-5.6-luna"
 max_complexity = 2
-ticket_timeout_s = 3600
+
+[worker.kimi]
+engine = "kimi"
+max_complexity = 3
+capabilities = ["frontier"]
+
+[worker.ds]
+engine = "pi"
+max_complexity = 2  # new model (2026-08-17): C2 until it earns C3
+model = "deepseek-ai/DeepSeek-V4-Flash-0731"  # GLM-5.3 retired provider-side 2026-08-17
+env_passthrough = ["DEEPINFRA_KEY"]
+scale = 2
+
+[worker.opus]
+engine = "claude"
+model = "opus"
+login_auth = true
+max_complexity = 3
+capabilities = ["frontier"]
+scale=2
+
+
+
+
+
+
+
+
+
+
 
 # [pm]
 # command = "claude"
