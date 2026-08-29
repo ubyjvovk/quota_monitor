@@ -61,7 +61,7 @@ observation age, and non-OK status.
 
 ## Providers
 
-Supported providers are Claude, ChatGPT / Codex, and Grok.
+Supported providers are Claude, ChatGPT / Codex, Grok, and DeepInfra.
 
 ### Claude
 
@@ -103,6 +103,14 @@ All three routes share one normalizer. It accepts snake-case and camel-case
 window spellings, infers labels and kinds from reported durations, and
 discards endpoint identity fields. HTTP requests identify themselves as
 `quotamon`; they do not send an `originator` header.
+
+### DeepInfra
+
+The live source reads the **`DEEPINFRA_KEY`** environment variable and sums
+month-to-date spend from `api.deepinfra.com/payment/{config,usage}`. DeepInfra
+is pay-as-you-go, so a `monthly_spend` percentage window appears only when the
+account has a positive spending limit; otherwise it reports spend with no
+percentage.
 
 ## Build and test
 

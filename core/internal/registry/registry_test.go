@@ -6,6 +6,7 @@ import (
 
 	"quotamon/internal/providers/claude"
 	"quotamon/internal/providers/codex"
+	"quotamon/internal/providers/deepinfra"
 	"quotamon/internal/providers/grok"
 	"quotamon/internal/registry"
 )
@@ -21,11 +22,11 @@ func TestAllReturnsStableProvidersAndHonoursLivePolicy(t *testing.T) {
 		Env:         func(string) string { return "" },
 	})
 
-	if len(providers) != 3 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID {
+	if len(providers) != 4 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID || providers[3].ID != deepinfra.ProviderID {
 		t.Fatalf("All() order = %#v", providers)
 	}
-	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled {
-		t.Fatalf("All() live policy = Claude %v, Codex %v, Grok %v", providers[0].LiveEnabled, providers[1].LiveEnabled, providers[2].LiveEnabled)
+	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled || !providers[3].LiveEnabled {
+		t.Fatalf("All() live policy = Claude %v, Codex %v, Grok %v, DeepInfra %v", providers[0].LiveEnabled, providers[1].LiveEnabled, providers[2].LiveEnabled, providers[3].LiveEnabled)
 	}
 	claudeLocal, ok := providers[0].Local.(claude.LocalSource)
 	if !ok || claudeLocal.MirrorPath != filepath.Join(mirrorDirectory, "claude-usage.json") {
@@ -43,6 +44,12 @@ func TestAllReturnsStableProvidersAndHonoursLivePolicy(t *testing.T) {
 	}
 	if _, ok := providers[2].Live.(grok.LiveSource); !ok {
 		t.Fatalf("Grok live = %T, want LiveSource", providers[2].Live)
+	}
+	if providers[3].Local != nil {
+		t.Fatalf("DeepInfra local = %T, want nil", providers[3].Local)
+	}
+	if _, ok := providers[3].Live.(deepinfra.LiveSource); !ok {
+		t.Fatalf("DeepInfra live = %T, want LiveSource", providers[3].Live)
 	}
 }
 
