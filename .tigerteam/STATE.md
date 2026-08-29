@@ -296,3 +296,32 @@ Behaviours worth preserving in any rewrite (each cost a real bug to learn):
 5. The most *actionable* failure is the one reported, not the last one.
 6. Prefer a vendor's local CLI (`security`, `codex app-server`) over its
    private HTTP API.
+
+## RESUMED 2026-08-29 20:12 — Go core port, phase 1 (GO-PORT.md)
+
+**Decision (user, GO-PORT.md):** core moves to Go; Swift fetchers frozen as
+reference semantics; `quotactl --json` is the parity oracle.
+
+**Environment changes (PM, commit 795b44d):**
+- Installed Go 1.27 via Homebrew (was absent — the one gap in GO-PORT.md).
+- `worker.sb`: read+write carve-outs for `~/Library/Caches/go-build`, `~/go`.
+- `test_cmd = "bash scripts/test-all.sh"` (Swift suite, then `go vet`+`go test`
+  in `core/` once `core/go.mod` exists). Supervisor restarted after the change.
+- Sandbox smoke (runner-exact params, real worktree path): vet/test/build/run
+  and linux/amd64 cross-compile all OK. Go's temp dir is the darwin user TMP,
+  which the runner already passes.
+- `.gitignore`: `core/bin/`.
+
+**Design decisions locked in tickets:**
+- Status JSON v2 `{"state":…,"message"?}`; Swift decodes legacy + v2, encodes v2.
+- Timestamps RFC 3339 UTC, no fractional seconds (Swift decoder rejects them).
+- `source.ErrorKind` numeric value == reporting priority (0..4).
+- `jsonx` is explicit-path only; no recursive search in the Go core, ever.
+- Provider READMEs live in-package; T-0011 folds them into `core/README.md`
+  (avoids two parallel tickets editing one file).
+
+**Board:** T-0008 (scaffold, P0) → T-0009 Claude ∥ T-0010 Codex → T-0011 CLI.
+Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
+
+**PM acceptance step after T-0011:** run `quotamon snapshot` vs
+`swift run quotactl --json` on this Mac; every percentage must agree.
