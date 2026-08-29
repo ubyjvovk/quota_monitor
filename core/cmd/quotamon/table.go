@@ -1,43 +1,50 @@
 package main
 
 import (
-	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"quotamon/internal/format"
 	"quotamon/internal/snapshot"
 )
 
 func renderTable(input snapshot.Snapshot, now time.Time) string {
-	providers := make([]string, 0, len(input.Providers))
-	for _, provider := range input.Providers {
-		providers = append(providers, renderTableProvider(provider, now))
-	}
-	return strings.Join(providers, "\n")
+	return renderTableWithColor(input, now, false)
 }
 
-func renderTableProvider(provider snapshot.Provider, now time.Time) string {
+func renderTableWithColor(input snapshot.Snapshot, now time.Time, colorEnabled bool) string {
+	providers := make([]string, 0, len(input.Providers))
+	for _, provider := range input.Providers {
+		providers = append(providers, renderTableProvider(provider, now, colorEnabled))
+	}
+	return strings.Join(providers, "\n\n")
+}
+
+func renderTableProvider(provider snapshot.Provider, now time.Time, colorEnabled bool) string {
 	plan := "—"
 	if provider.Plan != nil {
 		plan = *provider.Plan
 	}
-	lines := []string{fmt.Sprintf(
-		"%-15s %-6s %s · %s",
-		provider.DisplayName,
-		plan,
-		tableOrigin(provider.Origin),
-		format.Age(now.Sub(provider.ObservedAt.Time)),
-	)}
+	lines := []string{
+		padTableCell(provider.DisplayName, 12) + " " +
+			padTableCell(plan, 14) + " " +
+			tableOrigin(provider.Origin) + " · " + format.Age(now.Sub(provider.ObservedAt.Time)),
+	}
 
 	for _, window := range provider.SortedWindows(now) {
-		lines = append(lines, renderTableWindow(window, now))
+		lines = append(lines, renderTableWindow(window, now, colorEnabled))
 	}
 	if provider.Credits != nil {
 		if detail, ok := tableCredits(*provider.Credits); ok {
-			lines = append(lines, fmt.Sprintf("  %-14s %s", "credits", detail))
+			label := "credits"
+			if provider.Credits.Unlimited && provider.Credits.Balance != nil {
+				label = "spend"
+			}
+			lines = append(lines, "  "+padTableCell(label, 9)+" "+detail)
 		}
 	}
 	if provider.Status.State != "ok" {
@@ -46,19 +53,71 @@ func renderTableProvider(provider snapshot.Provider, now time.Time) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderTableWindow(window snapshot.Window, now time.Time) string {
+func renderTableWindow(window snapshot.Window, now time.Time, colorEnabled bool) string {
 	percent := "—"
-	if used, ok := window.CurrentUsedPercent(now); ok {
+	used, hasReading := window.CurrentUsedPercent(now)
+	if hasReading {
 		percent = format.Percent(used)
 	}
-	line := fmt.Sprintf("  %-14s %6s", window.Label, percent)
+
+	bar := renderTableBar(used, hasReading, colorEnabled)
+	percentPadding := 4 - utf8.RuneCountInString(percent)
+	if percentPadding < 0 {
+		percentPadding = 0
+	}
+	if colorEnabled && hasReading {
+		percent = format.Colorize(severity(used), percent)
+	}
+
+	return "  " + truncateAndPadTableCell(window.Label, 9) + " " +
+		bar + " " + strings.Repeat(" ", percentPadding) + percent + "  " +
+		tableCountdown(window, now)
+}
+
+func renderTableBar(used float64, hasReading, colorEnabled bool) string {
+	filled := 0
+	if hasReading {
+		filled = int(math.Round(used / 5))
+		if filled < 0 {
+			filled = 0
+		}
+		if filled > 20 {
+			filled = 20
+		}
+	}
+
+	filledCells := strings.Repeat("█", filled)
+	if colorEnabled && hasReading {
+		filledCells = format.Colorize(severity(used), filledCells)
+	}
+	return filledCells + strings.Repeat("░", 20-filled)
+}
+
+func tableCountdown(window snapshot.Window, now time.Time) string {
 	if window.ResetsAt == nil {
-		return line
+		return "—"
 	}
-	if remaining := window.ResetsAt.Sub(now); remaining > 0 {
-		return line + "  resets in " + format.Countdown(remaining)
+	remaining := window.ResetsAt.Sub(now)
+	if remaining <= 0 {
+		return "reset"
 	}
-	return line + "  window reset"
+	return format.Countdown(remaining)
+}
+
+func padTableCell(value string, width int) string {
+	padding := width - utf8.RuneCountInString(value)
+	if padding <= 0 {
+		return value
+	}
+	return value + strings.Repeat(" ", padding)
+}
+
+func truncateAndPadTableCell(value string, width int) string {
+	if utf8.RuneCountInString(value) > width {
+		runes := []rune(value)
+		value = string(runes[:width-1]) + "…"
+	}
+	return padTableCell(value, width)
 }
 
 // tableCredits omits disabled credits whose balance is absent, blank, or

@@ -1,49 +1,99 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"quotamon/internal/snapshot"
 )
 
-func TestRenderTableCoversCurrentAndRolledWindowsCreditsAndUnavailableStatus(t *testing.T) {
+func TestRenderTableMatchesTheAlignedGoldenLayout(t *testing.T) {
 	now := time.Date(2026, 8, 29, 19, 0, 0, 0, time.UTC)
-	maxPlan := "Max"
-	disabledBalance := "3.50"
-	monthlySpend := "$7.75 this month"
+	maxPlan := "max"
+	plusPlan := "plus"
+	payAsYouGoPlan := "pay-as-you-go"
+	disabledBalance := "20.00"
+	monthlySpend := "$7.96 this month"
 	input := snapshot.Snapshot{Providers: []snapshot.Provider{
 		{
 			ID: "claude", DisplayName: "Claude", Plan: &maxPlan,
 			Windows: []snapshot.Window{
-				{ID: "rolled", Label: "Week", Kind: snapshot.KindWeekly, UsedPercent: 88, ResetsAt: tableTime(now.Add(-time.Minute))},
-				{ID: "session", Label: "5h", Kind: snapshot.KindSession, UsedPercent: 42.4, ResetsAt: tableTime(now.Add(time.Hour + 2*time.Minute))},
+				{ID: "fave", Label: "Fave wk", Kind: snapshot.KindWeekly, UsedPercent: 23, ResetsAt: tableTime(now.Add(40 * time.Hour))},
+				{ID: "week", Label: "Week", Kind: snapshot.KindWeekly, UsedPercent: 15, ResetsAt: tableTime(now.Add(40 * time.Hour))},
+				{ID: "session", Label: "5h", Kind: snapshot.KindSession, UsedPercent: 6, ResetsAt: tableTime(now.Add(2*time.Hour + 39*time.Minute))},
 			},
 			Credits:    &snapshot.Credits{Balance: &disabledBalance, Enabled: false},
-			ObservedAt: snapshot.Time{Time: now.Add(-3 * time.Minute)},
-			Origin:     snapshot.OriginLocal,
-			Status:     snapshot.OK(),
-		},
-		{
-			ID: "deepinfra", DisplayName: "DeepInfra",
-			Credits:    &snapshot.Credits{Unlimited: true, Balance: &monthlySpend, Enabled: true},
-			ObservedAt: snapshot.Time{Time: now.Add(-2 * time.Second)},
+			ObservedAt: snapshot.Time{Time: now},
 			Origin:     snapshot.OriginLive,
 			Status:     snapshot.OK(),
 		},
-		snapshot.Unavailable("grok", "Grok", snapshot.NeedsSetup("set GROK_API_KEY"), now.Add(-2*time.Hour)),
+		{
+			ID: "codex", DisplayName: "ChatGPT", Plan: &plusPlan,
+			Windows: []snapshot.Window{
+				{ID: "session", Label: "5h", Kind: snapshot.KindSession, UsedPercent: 100, ResetsAt: tableTime(now.Add(8 * time.Minute))},
+				{ID: "week", Label: "Week", Kind: snapshot.KindWeekly, UsedPercent: 31, ResetsAt: tableTime(now.Add(5*24*time.Hour + 11*time.Hour))},
+			},
+			ObservedAt: snapshot.Time{Time: now},
+			Origin:     snapshot.OriginLive,
+			Status:     snapshot.OK(),
+		},
+		{
+			ID: "grok", DisplayName: "Grok",
+			Windows:    []snapshot.Window{{ID: "week", Label: "Week", Kind: snapshot.KindWeekly, UsedPercent: 63, ResetsAt: tableTime(now.Add(2*24*time.Hour + 13*time.Hour))}},
+			ObservedAt: snapshot.Time{Time: now}, Origin: snapshot.OriginLive, Status: snapshot.OK(),
+		},
+		{
+			ID: "deepinfra", DisplayName: "DeepInfra", Plan: &payAsYouGoPlan,
+			Credits:    &snapshot.Credits{Unlimited: true, Balance: &monthlySpend, Enabled: true},
+			ObservedAt: snapshot.Time{Time: now}, Origin: snapshot.OriginLive, Status: snapshot.OK(),
+		},
 	}}
 
-	want := `Claude          Max    cached · 3m ago
-  5h                42%  resets in 1h 2m
-  Week                —  window reset
-  credits        3.50 (not enabled)
-DeepInfra       —      live · just now
-  credits        $7.75 this month
-Grok            —      unavailable · 2h ago
-  !  set GROK_API_KEY`
+	want := `Claude       max            live · just now
+  Fave wk   █████░░░░░░░░░░░░░░░  23%  1d 16h
+  Week      ███░░░░░░░░░░░░░░░░░  15%  1d 16h
+  5h        █░░░░░░░░░░░░░░░░░░░   6%  2h 39m
+  credits   20.00 (not enabled)
+
+ChatGPT      plus           live · just now
+  5h        ████████████████████ 100%  8m
+  Week      ██████░░░░░░░░░░░░░░  31%  5d 11h
+
+Grok         —              live · just now
+  Week      █████████████░░░░░░░  63%  2d 13h
+
+DeepInfra    pay-as-you-go  live · just now
+  spend     $7.96 this month`
 	if got := renderTable(input, now); got != want {
 		t.Fatalf("renderTable() =\n%q\nwant:\n%q", got, want)
+	}
+
+	percentColumn := -1
+	for _, line := range strings.Split(want, "\n") {
+		percentEnd := strings.Index(line, "%")
+		if percentEnd < 0 {
+			continue
+		}
+		column := utf8.RuneCountInString(line[:percentEnd+1]) - 4
+		if percentColumn == -1 {
+			percentColumn = column
+		} else if column != percentColumn {
+			t.Fatalf("percent column starts at rune %d in %q, want %d", column, line, percentColumn)
+		}
+	}
+}
+
+func TestRenderTableWindowShowsResetAndTruncatesLabelsByRunes(t *testing.T) {
+	now := time.Date(2026, 8, 29, 19, 0, 0, 0, time.UTC)
+	window := snapshot.Window{
+		ID: "rolled", Label: "一二三四五六七八九十", Kind: snapshot.KindWeekly,
+		UsedPercent: 88, ResetsAt: tableTime(now.Add(-time.Minute)),
+	}
+	want := "  一二三四五六七八… ░░░░░░░░░░░░░░░░░░░░    —  reset"
+	if got := renderTableWindow(window, now, false); got != want {
+		t.Fatalf("renderTableWindow() = %q, want %q", got, want)
 	}
 }
 
