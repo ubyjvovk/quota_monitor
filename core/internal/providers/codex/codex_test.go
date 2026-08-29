@@ -1,4 +1,4 @@
-package codex_test
+package codex
 
 import (
 	"bytes"
@@ -9,12 +9,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"quotamon/internal/fixtures"
-	"quotamon/internal/providers/codex"
 	"quotamon/internal/snapshot"
 	"quotamon/internal/source"
 )
@@ -27,11 +27,11 @@ func TestParseAppServerOutputSelectsTheExplicitRateLimitsReply(t *testing.T) {
 		fixture,
 	}, []byte("\n"))
 
-	limits, err := codex.ParseAppServerOutput(stdout)
+	limits, err := ParseAppServerOutput(stdout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider, ok := codex.Snapshot(limits, time.Unix(0, 0), snapshot.OriginLive)
+	provider, ok := Snapshot(limits, time.Unix(0, 0), snapshot.OriginLive)
 	if !ok {
 		t.Fatal("Snapshot() rejected fixture limits")
 	}
@@ -50,7 +50,7 @@ func TestParseAppServerOutputReportsReplyErrorsAndMissingReplies(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := codex.ParseAppServerOutput([]byte(test.stdout))
+			_, err := ParseAppServerOutput([]byte(test.stdout))
 			var sourceError *source.Error
 			if !errors.As(err, &sourceError) {
 				t.Fatalf("error = %T %v, want *source.Error", err, err)
@@ -62,12 +62,51 @@ func TestParseAppServerOutputReportsReplyErrorsAndMissingReplies(t *testing.T) {
 	}
 }
 
+func TestRunAppServerKeepsStdinOpenUntilRateLimitsReply(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake codex CLI is a shell script")
+	}
+
+	fixture := compactFixture(t, "codex-app-server-ratelimits.json")
+	directory := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"set -eu\n" +
+		"printf '%s\\n' '{\"id\":1,\"result\":{}}'\n" +
+		"IFS= read -r first_request\n" +
+		"IFS= read -r second_request\n" +
+		"IFS= read -r third_request\n" +
+		"cat <<'QUOTAMON_FIXTURE'\n" +
+		string(fixture) + "\n" +
+		"QUOTAMON_FIXTURE\n" +
+		"cat >/dev/null\n"
+	path := filepath.Join(directory, "codex")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	started := time.Now()
+	output, err := runAppServer(ctx, []byte(appServerRequests))
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed >= 3*time.Second {
+		t.Fatalf("runAppServer returned after %s, want less than 3s", elapsed)
+	}
+	if !bytes.Contains(output, fixture) {
+		t.Fatalf("output = %q, want id:2 fixture", output)
+	}
+}
+
 func TestAppServerSourceUsesTheInjectedExchangeAndReturnsLiveQuota(t *testing.T) {
 	fixture := compactFixture(t, "codex-app-server-ratelimits.json")
 	wantRequests := "{\"method\":\"initialize\",\"id\":1,\"params\":{\"clientInfo\":{\"name\":\"quotamon\",\"title\":\"Quota Monitor\",\"version\":\"0.1.0\"}}}\n" +
 		"{\"method\":\"initialized\"}\n" +
 		"{\"method\":\"account/rateLimits/read\",\"id\":2}\n"
-	sourceUnderTest := codex.AppServerSource{Run: func(_ context.Context, requests []byte) ([]byte, error) {
+	sourceUnderTest := AppServerSource{Run: func(_ context.Context, requests []byte) ([]byte, error) {
 		if got := string(requests); got != wantRequests {
 			t.Fatalf("requests = %q, want %q", got, wantRequests)
 		}
@@ -96,7 +135,7 @@ func TestLocalSourceReadsTheLastRolloutRecordAndLabelsRollover(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			home := rolloutHome(t)
-			provider, err := (codex.LocalSource{Home: home, Now: func() time.Time { return test.now }}).Fetch(context.Background())
+			provider, err := (LocalSource{Home: home, Now: func() time.Time { return test.now }}).Fetch(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -137,7 +176,7 @@ func TestLastLineEscalatesWithoutReturningAPartialLeadingFragment(t *testing.T) 
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	want := lines[len(lines)-1]
-	got, ok, err := codex.LastLine(path, "rate_limits", 24)
+	got, ok, err := LastLine(path, "rate_limits", 24)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +213,7 @@ func TestHTTPSourceMapsWhamUsageAndIdentifiesHonestly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "auth.json"), auth, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	provider, err := (codex.HTTPSource{Home: home, Endpoint: server.URL, Client: server.Client()}).Fetch(context.Background())
+	provider, err := (HTTPSource{Home: home, Endpoint: server.URL, Client: server.Client()}).Fetch(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
