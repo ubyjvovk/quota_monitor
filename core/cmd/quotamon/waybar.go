@@ -106,6 +106,8 @@ func providerShortName(provider snapshot.Provider) string {
 		return "GK"
 	case "deepinfra":
 		return "DI"
+	case "kimi":
+		return "KM"
 	default:
 		return provider.DisplayName
 	}

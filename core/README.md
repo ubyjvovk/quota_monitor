@@ -190,7 +190,7 @@ observation age, and non-OK status.
 
 ## Providers
 
-Supported providers are Claude, ChatGPT / Codex, Grok, and DeepInfra.
+Supported providers are Claude, ChatGPT / Codex, Grok, DeepInfra, and Kimi.
 
 ### Claude
 
@@ -255,6 +255,21 @@ month-to-date spend from `api.deepinfra.com/payment/{config,usage}`. DeepInfra
 is pay-as-you-go, so a `monthly_spend` percentage window appears only when the
 account has a positive spending limit; otherwise it reports spend with no
 percentage.
+
+### Kimi
+
+The live source reads the Kimi CLI bearer token from
+`~/.kimi-code/credentials/kimi-code.json` (top-level `access_token` only — the
+blob also carries a refresh token and profile data). The token lives only 15
+minutes and the TUI refreshes it on launch; on an expired token it reports
+"Kimi sign-in expired — run `kimi` once".
+
+Usage comes from `GET https://api.kimi.com/coding/v1/usages` — note the
+**plural**; the singular route is 404. The `usage` object is the weekly pool
+(Kimi reports the numbers as strings), and each `limits[]` entry becomes an
+additional window whose label and kind are inferred from its duration. A zero
+or unparsable limit is skipped rather than fabricated, and the plan comes from
+`membership.level` with the `LEVEL_` prefix stripped.
 
 ## Build and test
 

@@ -10,6 +10,7 @@ import (
 	"quotamon/internal/providers/codex"
 	"quotamon/internal/providers/deepinfra"
 	"quotamon/internal/providers/grok"
+	"quotamon/internal/providers/kimi"
 	"quotamon/internal/source"
 )
 
@@ -46,7 +47,7 @@ func All(options Options) []hybrid.Provider {
 		codexLive = codex.AppServerSource{}
 	}
 
-	providers := make([]hybrid.Provider, 0, 4)
+	providers := make([]hybrid.Provider, 0, 5)
 	if configured[claude.ProviderID].Enabled {
 		providers = append(providers, hybrid.Provider{
 			ID:          claude.ProviderID,
@@ -91,6 +92,15 @@ func All(options Options) []hybrid.Provider {
 				return environment("DEEPINFRA_KEY")
 			}},
 			LiveEnabled: liveEnabled(deepinfra.ProviderID),
+		})
+	}
+	if configured[kimi.ProviderID].Enabled {
+		providers = append(providers, hybrid.Provider{
+			ID:          kimi.ProviderID,
+			DisplayName: kimi.DisplayName,
+			Local:       nil,
+			Live:        kimi.LiveSource{},
+			LiveEnabled: liveEnabled(kimi.ProviderID),
 		})
 	}
 	return providers

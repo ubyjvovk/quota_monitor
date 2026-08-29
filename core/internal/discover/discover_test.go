@@ -86,13 +86,13 @@ func TestDeepInfraDiscoveryFindsTheEnvironmentWithoutLoadingSecrets(t *testing.T
 	}
 }
 
-func TestKimiCredentialIsFoundButRemainsUnsupported(t *testing.T) {
+func TestKimiCredentialIsFoundAndReportedSupported(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	writeCredential(t, filepath.Join(home, ".kimi-code", "credentials", "kimi-code.json"), `{}`)
 
 	finding := all(testDependencies(t, home))[4]
-	if !finding.Found || finding.Supported || !strings.Contains(finding.Hint, "no quota API found") {
+	if !finding.Found || !finding.Supported || !strings.Contains(finding.Hint, "run `kimi`") {
 		t.Fatalf("Kimi finding = %#v", finding)
 	}
 }
