@@ -11,3 +11,6 @@ DerivedData/
 xcuserdata/
 
 .DS_Store
+
+# Secrets — holds DEEPINFRA_KEY; masked from tigerteam workers by worker.sb
+.env
