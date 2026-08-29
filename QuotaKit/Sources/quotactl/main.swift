@@ -15,10 +15,13 @@ func describe(_ label: String, _ result: Result<ProviderSnapshot, any Error>) {
         let age = Int(snapshot.age())
         print("  \(label.padded(14)) ok      \(snapshot.displayName) [\(snapshot.plan ?? "—")]  observed \(age)s ago")
         for window in snapshot.sortedWindows() {
-            let used = window.effectiveUsedPercent()
+            // Matches the app: a reset window has no reading, rather than zero.
+            guard let used = window.currentUsedPercent() else {
+                print("  \(" ".padded(14))         \(window.label.padded(8))     — no reading since this window reset")
+                continue
+            }
             let reset = window.timeUntilReset().map { "resets in \(Self_formatDuration($0))" } ?? "reset time unknown"
-            let rolled = window.hasRolledOver() ? "  (window had rolled over — treated as 0)" : ""
-            print("  \(" ".padded(14))         \(window.label.padded(8)) \(String(format: "%5.1f", used))% used   \(reset)\(rolled)")
+            print("  \(" ".padded(14))         \(window.label.padded(8)) \(String(format: "%5.1f", used))% used   \(reset)")
         }
         if let credits = snapshot.credits {
             print("  \(" ".padded(14))         credits: balance \(credits.balance ?? "—"), unlimited \(credits.unlimited)")

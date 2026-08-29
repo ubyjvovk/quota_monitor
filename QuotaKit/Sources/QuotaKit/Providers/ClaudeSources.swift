@@ -166,10 +166,12 @@ public struct ClaudeLiveSource: QuotaSource {
 
         let (token, expiry, plan) = try Claude.credentials(from: credentials)
 
-        // Claude Code refreshes this itself; if it has lapsed, using the CLI once fixes it.
-        if let expiry, expiry <= Date() {
-            throw QuotaError.unauthorized("Claude token expired — open Claude Code to refresh it")
-        }
+        // `expiresAt` is treated as a hint, not a verdict. Claude Code refreshes
+        // lazily and may not have written the new value back yet, and clocks
+        // drift — so a locally "expired" token is often still good. Try it and
+        // let the server decide; a stale timestamp only shapes the message on a
+        // genuine 401.
+        let looksExpired = expiry.map { $0 <= Date() } ?? false
 
         var request = URLRequest(url: endpoint)
         request.timeoutInterval = 15
@@ -184,6 +186,13 @@ public struct ClaudeLiveSource: QuotaSource {
         let (body, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw QuotaError.transport("No HTTP response from \(endpoint.host() ?? "endpoint")")
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw QuotaError.unauthorized(
+                looksExpired
+                    ? "Claude sign-in expired — run `claude` in a terminal to refresh it"
+                    : "Claude rejected the token — run `claude` in a terminal to sign in again"
+            )
         }
         guard (200..<300).contains(http.statusCode) else {
             throw QuotaError.forHTTP(http.statusCode, provider: "Claude")

@@ -1,0 +1,132 @@
+;; Tiger Team host-mode worker sandbox (macOS Seatbelt).
+;;
+;; Wraps one engine process when a worker profile sets `sandbox_profile`
+;; and has no container image (host mode). The runner invokes:
+;;
+;;   sandbox-exec -D ROOT=<root> -D WT=<worktree> -D TMP=<tmpdir> \
+;;                -D CACHE=<darwin-user-cache> -D HOMEDIR=<home> \
+;;                -f <this file> <engine argv...>
+;;
+;; All five params arrive realpath'd (Seatbelt matches resolved vnode
+;; paths; a symlinked param like /var/... would silently never match).
+;; The policy mirrors container invariant #4 (docker/README.md): the
+;; project is readable, writes land only in .git + .tigerteam + the
+;; worktree, `<root>/.env` is masked, and the user's private files
+;; ($HOME at large: ssh keys, keychains, other repos) are unreadable.
+;; Engine CLI state dirs under $HOME are carved back in — the worker
+;; already holds those engines' credentials, so hiding them buys nothing
+;; and breaks auth/session logging.
+;;
+;; Rule order matters: the LAST matching rule wins, so the file reads as
+;; broad grant -> carve-outs -> re-grants -> final masks.
+
+(version 1)
+(deny default)
+(import "system.sb")
+
+;; ---- process basics ----------------------------------------------------
+(allow process-exec* process-fork)
+(allow signal)
+(allow sysctl-read)
+(allow process-info*)
+;; DNS, securityd/keychain (claude login_auth), notifyd — all mach IPC.
+(allow mach-lookup)
+(allow ipc-posix-shm ipc-posix-sem)
+(allow pseudo-tty)
+(allow system-socket)
+(allow file-ioctl (regex #"^/dev/"))
+
+;; ---- reads -------------------------------------------------------------
+;; The world (toolchains, /usr, dyld caches, homebrew) ...
+(allow file-read*)
+;; ... minus the user's private files ...
+(deny file-read* (subpath (param "HOMEDIR")))
+;; ... but path lookup must still traverse $HOME itself (metadata only),
+(allow file-read-metadata (literal (param "HOMEDIR")))
+;; ... plus the project (it usually lives under $HOME) and the worktree,
+(allow file-read*
+  (subpath (param "ROOT"))
+  (subpath (param "WT"))
+  (subpath (param "TMP"))
+  (subpath (param "CACHE")))
+;; ... plus engine CLI state + toolchain caches the worker legitimately
+;; needs (add a line here if you host a new engine with its own dotdir):
+(allow file-read*
+  (literal (string-append (param "HOMEDIR") "/.gitconfig"))
+  (literal (string-append (param "HOMEDIR") "/.claude.json"))
+  (subpath (string-append (param "HOMEDIR") "/.claude"))
+  (subpath (string-append (param "HOMEDIR") "/.codex"))
+  (subpath (string-append (param "HOMEDIR") "/.grok"))
+  (subpath (string-append (param "HOMEDIR") "/.kimi-code"))
+  (subpath (string-append (param "HOMEDIR") "/.gemini"))
+  (subpath (string-append (param "HOMEDIR") "/.hermes"))
+  (subpath (string-append (param "HOMEDIR") "/.pi"))
+  (subpath (string-append (param "HOMEDIR") "/.config"))
+  (subpath (string-append (param "HOMEDIR") "/.cache"))
+  (subpath (string-append (param "HOMEDIR") "/.local"))
+  (subpath (string-append (param "HOMEDIR") "/.npm"))
+  (subpath (string-append (param "HOMEDIR") "/.bun"))
+  (subpath (string-append (param "HOMEDIR") "/Library/Caches/uv"))
+  (subpath (string-append (param "HOMEDIR") "/Library/Caches/pip"))
+  ;; Login keychain db files: claude login_auth reads credentials via the
+  ;; legacy SecKeychain path, which memory-maps the db IN-PROCESS (securityd
+  ;; only mediates unlock/ACL). The files are encrypted at rest and per-item
+  ;; ACLs still gate other apps' items behind a UI prompt no headless worker
+  ;; can answer — this grants what every unsandboxed host process already has.
+  (subpath (string-append (param "HOMEDIR") "/Library/Keychains")))
+;; ... and finally mask project secrets (mirror of in-container.sh's
+;; /dev/null bind over <root>/.env — the supervisor resolves env, workers
+;; never read it). Last rule wins over the ROOT subpath allow above.
+(deny file-read* (literal (string-append (param "ROOT") "/.env")))
+
+;; ---- writes ------------------------------------------------------------
+;; Container invariant #4: rw is .git + .tigerteam (worktrees, ticket
+;; handoff appends, logs, artifacts) + the worktree; the rest of the
+;; project root stays read-only by construction.
+(allow file-write*
+  (subpath (string-append (param "ROOT") "/.git"))
+  (subpath (string-append (param "ROOT") "/.tigerteam"))
+  (subpath (param "WT"))
+  (subpath (param "TMP"))
+  ;; darwin per-user temp + cache trees (confstr paths, realpath'd by the
+  ;; runner) and the world-writable /tmp for tools that hardcode it.
+  (subpath (param "CACHE"))
+  (subpath "/private/tmp")
+  ;; engine state: session logs, OAuth refresh, statsig, caches.
+  (literal (string-append (param "HOMEDIR") "/.claude.json"))
+  (literal (string-append (param "HOMEDIR") "/.claude.json.backup"))
+  (literal (string-append (param "HOMEDIR") "/.claude.json.lock"))
+  (subpath (string-append (param "HOMEDIR") "/.claude"))
+  (subpath (string-append (param "HOMEDIR") "/.codex"))
+  (subpath (string-append (param "HOMEDIR") "/.grok"))
+  (subpath (string-append (param "HOMEDIR") "/.kimi-code"))
+  (subpath (string-append (param "HOMEDIR") "/.gemini"))
+  (subpath (string-append (param "HOMEDIR") "/.hermes"))
+  (subpath (string-append (param "HOMEDIR") "/.pi"))
+  (subpath (string-append (param "HOMEDIR") "/.config"))
+  (subpath (string-append (param "HOMEDIR") "/.cache"))
+  (subpath (string-append (param "HOMEDIR") "/.local"))
+  (subpath (string-append (param "HOMEDIR") "/.npm"))
+  (subpath (string-append (param "HOMEDIR") "/.bun"))
+  (subpath (string-append (param "HOMEDIR") "/Library/Caches/uv"))
+  (subpath (string-append (param "HOMEDIR") "/Library/Caches/pip"))
+  ;; keychain token refresh rewrites the db in place (see read note above).
+  (subpath (string-append (param "HOMEDIR") "/Library/Keychains"))
+  (literal "/dev/null")
+  (literal "/dev/stdout")
+  (literal "/dev/stderr")
+  (literal "/dev/ptmx")
+  (regex #"^/dev/tty"))
+;; .env stays unwritable too (it is outside .git/.tigerteam, but be
+;; explicit: last rule wins over any grant above).
+(deny file-write* (literal (string-append (param "ROOT") "/.env")))
+
+;; ---- network -----------------------------------------------------------
+;; Egress open, matching container-mode v1 posture (docker/README.md
+;; "Posture notes"); tighten to a proxy allowlist if that posture changes.
+;; The mDNSResponder socket is how libinfo does DNS — without it every
+;; engine fails resolution and looks unauthenticated.
+(allow network-outbound (remote ip) (literal "/private/var/run/mDNSResponder"))
+;; Project test suites may bind/serve loopback (web-check, uvicorn tests).
+(allow network-bind (local ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))

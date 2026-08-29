@@ -1,0 +1,55 @@
+# tigerteam project config — the one committed config file (v4).
+# Resolution chain: defaults -> ~/.tigerteam.toml -> <root>/tigerteam.toml
+# -> curated WORKER_* env -> --set key=value.  NO SECRETS in this file — only names.
+
+# test_cmd = "bash .tigerteam/scripts/run-tests.sh"
+# verify_cmds = ["bash .tigerteam/scripts/run-tests.sh"]
+# staging = false
+# quiet_load = 8.0
+# debounce_s = 60
+# artifact_globs = ["game/e2e/__shots__/*.png"]
+# ui_port = 8383
+
+[workers]
+max_concurrent = 4              # host capacity; reference host: 12 cores -> 4-5
+# env_passthrough = ["DEEPINFRA_KEY"]   # names only, never values
+# engine = "claude"
+# model = "glm-5.2"
+# base_url = "https://api.z.ai/api/anthropic"
+# isolation = "worktree"
+# orientation_prefix = true
+# image = "tigerteam-agents:base"  # machine-local; consider ~/.tigerteam.toml
+# agents_home = "/home/you/.agents-home"  # machine-local; consider ~/.tigerteam.toml
+# secrets_dir = "/home/you/.tigerteam-secrets"  # machine-local; consider ~/.tigerteam.toml
+
+# Worker profiles (SPEC §3.3). Uncomment and edit for your fleet:
+#
+# [worker.grok]
+# engine = "grok"
+# max_complexity = 2
+# image = "tigerteam-agents:runecaster"
+# cpus = 3
+# memory = "4g"
+# ticket_timeout_s = 5400
+#
+# [worker.opus]
+# engine = "claude"
+# model = "opus"
+# login_auth = true
+# max_complexity = 3
+
+# [pm]
+# command = "claude"
+# args = []
+# nudge = false
+
+# [web]
+# host = "127.0.0.1"
+# port = 8787
+# token_env = ""
+# poll_ms = 3000
+# terminal = "ro"
+
+# [mcp]
+# port = 8765
+# allowed_hosts = []

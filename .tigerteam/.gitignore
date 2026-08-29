@@ -1,0 +1,11 @@
+logs/
+STOP
+worktrees/
+pm-cursor.json
+artifacts/
+supervisor.pid
+web-token
+web.pid
+mcp.pid
+gh-poll.json
+worker-authors

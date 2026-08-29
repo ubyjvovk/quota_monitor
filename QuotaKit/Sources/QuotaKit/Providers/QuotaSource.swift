@@ -22,6 +22,21 @@ public enum QuotaError: LocalizedError, Sendable {
         if case .transport = self { return true }
         return false
     }
+
+    /// How strongly this failure should claim the one line of status the UI has.
+    ///
+    /// A configured source that broke outranks an optional one that was never
+    /// set up: reporting "statusline not installed" while the real problem is an
+    /// expired token sends the user to fix the wrong thing.
+    var reportingPriority: Int {
+        switch self {
+        case .unauthorized: 4   // actionable, and the actual blocker
+        case .malformed: 3
+        case .transport: 2
+        case .noDataFound: 1
+        case .notConfigured: 0  // an optional fallback nobody asked for
+        }
+    }
 }
 
 public extension QuotaError {
@@ -91,29 +106,47 @@ public struct HybridProvider: Sendable {
         }
 
         if case .success(var snapshot)? = localOutcome, !snapshot.windows.isEmpty {
-            if case .failure(let error)? = liveOutcome {
+            let now = Date()
+            let hasCurrentReading = snapshot.windows.contains {
+                $0.currentUsedPercent(asOf: now) != nil
+            }
+
+            if !hasCurrentReading {
+                // Every window reset since this was recorded, so the numbers
+                // describe windows that no longer exist. That is the headline —
+                // a live-refresh error underneath it is noise by comparison.
+                snapshot.status = .needsSetup(
+                    "Last reading \(QuotaFormat.age(snapshot.age(asOf: now))); its window has since reset"
+                )
+            } else if case .failure(let error)? = liveOutcome {
                 snapshot.status = .needsSetup("Cached — live refresh failed: \(error.localizedDescription)")
             }
             return snapshot
         }
 
-        // Nothing usable. The local failure is normally the one worth acting on.
-        let message = localOutcome?.failureMessage
-            ?? liveOutcome?.failureMessage
+        // Nothing usable. Report whichever failure the user can actually act on.
+        let message = Self.mostActionableMessage(localOutcome, liveOutcome)
             ?? "No data source configured"
         return .unavailable(id: providerID, displayName: displayName, status: .needsSetup(message))
+    }
+
+    /// Highest-priority failure across the attempts, local winning ties.
+    private static func mostActionableMessage(
+        _ outcomes: Result<ProviderSnapshot, any Error>?...
+    ) -> String? {
+        outcomes
+            .compactMap { outcome -> (Int, String)? in
+                guard case .failure(let error)? = outcome else { return nil }
+                let priority = (error as? QuotaError)?.reportingPriority ?? 2
+                return (priority, error.localizedDescription)
+            }
+            .max { $0.0 < $1.0 }?
+            .1
     }
 
     private static func attempt(_ source: (any QuotaSource)?) async -> Result<ProviderSnapshot, any Error>? {
         guard let source else { return nil }
         do { return .success(try await source.fetch()) }
         catch { return .failure(error) }
-    }
-}
-
-private extension Result where Success == ProviderSnapshot, Failure == any Error {
-    var failureMessage: String? {
-        if case .failure(let error) = self { return error.localizedDescription }
-        return nil
     }
 }

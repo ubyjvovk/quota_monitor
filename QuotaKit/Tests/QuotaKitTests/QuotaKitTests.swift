@@ -297,19 +297,6 @@ private func stubSnapshot(usedPercent: Double, origin: SnapshotOrigin) -> Provid
     #expect(result.status.message?.contains("HTTP 503") == true)
 }
 
-@Test func theActionableSetupErrorSurvivesWhenEverySourceFails() async {
-    let provider = HybridProvider(
-        providerID: "stub", displayName: "Stub",
-        local: StubSource(origin: .local, result: .failure(.notConfigured("Statusline mirror not installed"))),
-        live: StubSource(origin: .live, result: .failure(.unauthorized("token expired")))
-    )
-    let result = await provider.fetch()
-
-    #expect(result.origin == .unavailable)
-    // The local setup step is what the user can act on, not the token error.
-    #expect(result.status.message == "Statusline mirror not installed")
-}
-
 @Test func disablingLiveSkipsTheEndpointEntirely() async {
     let provider = HybridProvider(
         providerID: "stub", displayName: "Stub",
@@ -541,4 +528,79 @@ private func atElapsed(_ fraction: Double) -> Date {
     let credentials = try Claude.credentials(from: try JSONValue.parse(Data(blob.utf8)))
     #expect(credentials.token == "sk-ant-oat01-BARE")
     #expect(credentials.plan == "pro")
+}
+
+// MARK: - Which failure gets reported
+
+@Test func aBrokenConfiguredSourceOutranksAnUnconfiguredFallback() async {
+    // The exact case that sent the user to reinstall a statusline when the real
+    // problem was an expired token.
+    let provider = HybridProvider(
+        providerID: "stub", displayName: "Stub",
+        local: StubSource(origin: .local,
+                          result: .failure(.notConfigured("Statusline mirror not installed"))),
+        live: StubSource(origin: .live,
+                         result: .failure(.unauthorized("Claude sign-in expired")))
+    )
+    let result = await provider.fetch()
+
+    #expect(result.origin == .unavailable)
+    #expect(result.status.message == "Claude sign-in expired")
+    #expect(result.status.message?.contains("Statusline") == false)
+}
+
+@Test func anUnconfiguredSourceIsStillReportedWhenItIsTheOnlyFailure() async {
+    let provider = HybridProvider(
+        providerID: "stub", displayName: "Stub",
+        local: StubSource(origin: .local,
+                          result: .failure(.notConfigured("Statusline mirror not installed"))),
+        live: nil
+    )
+    let result = await provider.fetch()
+    #expect(result.status.message == "Statusline mirror not installed")
+}
+
+@Test func staleWindowsReportTheirAgeRatherThanALiveRefreshError() async {
+    // Local data whose window expired long ago, plus a failing live endpoint.
+    // The age is the useful fact; the endpoint error is noise beside it.
+    let expired = QuotaWindow(
+        id: "primary", label: "Week", kind: .weekly, usedPercent: 18,
+        resetsAt: Date().addingTimeInterval(-86_400 * 3), windowMinutes: 10080
+    )
+    let stale = ProviderSnapshot(
+        id: "stub", displayName: "Stub", windows: [expired],
+        observedAt: Date().addingTimeInterval(-86_400 * 15), origin: .local
+    )
+
+    let provider = HybridProvider(
+        providerID: "stub", displayName: "Stub",
+        local: StubSource(origin: .local, result: .success(stale)),
+        live: StubSource(origin: .live, result: .failure(.transport("HTTP 404")))
+    )
+    let result = await provider.fetch()
+
+    let message = result.status.message ?? ""
+    #expect(message.contains("has since reset"))
+    #expect(message.contains("15d ago"))
+    #expect(!message.contains("404"))
+}
+
+@Test func aCurrentReadingStillSurfacesTheLiveRefreshError() async {
+    // Only suppress the endpoint error when there is nothing current to caveat.
+    let current = QuotaWindow(
+        id: "primary", label: "Week", kind: .weekly, usedPercent: 18,
+        resetsAt: Date().addingTimeInterval(86_400 * 2), windowMinutes: 10080
+    )
+    let fresh = ProviderSnapshot(
+        id: "stub", displayName: "Stub", windows: [current],
+        observedAt: Date().addingTimeInterval(-3600), origin: .local
+    )
+
+    let provider = HybridProvider(
+        providerID: "stub", displayName: "Stub",
+        local: StubSource(origin: .local, result: .success(fresh)),
+        live: StubSource(origin: .live, result: .failure(.transport("HTTP 404")))
+    )
+    let result = await provider.fetch()
+    #expect(result.status.message?.contains("404") == true)
 }
