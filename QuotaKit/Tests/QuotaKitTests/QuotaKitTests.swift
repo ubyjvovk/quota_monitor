@@ -125,6 +125,42 @@ private func makeCodexHome() throws -> URL {
     }
 }
 
+@Test func claudeLiveUsageParsesCanonicalLimitsAndSpend() throws {
+    let root = try JSONValue.parse(Data(contentsOf: fixture("claude-usage-live", "json")))
+    let snapshot = try #require(
+        Claude.snapshot(fromRateLimits: root, observedAt: beforeAll, origin: .live)
+    )
+
+    #expect(snapshot.windows.map(\.id) == ["session", "weekly_all", "weekly_scoped"])
+    #expect(snapshot.windows.count == 3)
+
+    let session = snapshot.windows[0]
+    #expect(session.usedPercent == 10)
+    #expect(session.kind == .session)
+    #expect(session.windowMinutes == 300)
+
+    let scoped = snapshot.windows[2]
+    #expect(scoped.id == "weekly_scoped")
+    #expect(scoped.usedPercent == 20)
+    #expect(scoped.label == "Fable wk")
+    #expect(scoped.kind == .weekly)
+    #expect(scoped.windowMinutes == 60 * 24 * 7)
+
+    let excludedIDs = ["nimbus_quill", "tangelo", "iguana_necktie", "seven_day_opus"]
+    #expect(snapshot.windows.allSatisfy { !excludedIDs.contains($0.id) })
+    #expect(snapshot.credits?.balance == "20.00")
+}
+
+@Test func claudeFallsBackToLegacyWindowsWhenLimitsAreAbsent() throws {
+    let json = """
+    {"five_hour":{"utilization":12},"seven_day":{"utilization":34}}
+    """
+    let windows = Claude.windows(from: try JSONValue.parse(Data(json.utf8)))
+
+    #expect(windows.map(\.id) == ["five_hour", "seven_day"])
+    #expect(windows.map(\.usedPercent) == [12, 34])
+}
+
 // MARK: - Rollover
 
 @Test func usageIsZeroedOnceTheWindowHasRolledOver() {
