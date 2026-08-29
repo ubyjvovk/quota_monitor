@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-08-29T18:59:59Z",
+  "providers": [
+    {
+      "credits": {
+        "balance": "20.00",
+        "enabled": false,
+        "hasCredits": false,
+        "unlimited": false
+      },
+      "displayName": "Claude",
+      "id": "claude",
+      "observedAt": "2026-08-29T18:59:59Z",
+      "origin": "live",
+      "plan": "max",
+      "status": {
+        "state": "ok"
+      },
+      "windows": [
+        {
+          "id": "session",
+          "kind": "session",
+          "label": "5h",
+          "resetsAt": "2026-08-29T20:59:59Z",
+          "usedPercent": 10,
+          "windowMinutes": 300
+        },
+        {
+          "id": "weekly_all",
+          "kind": "weekly",
+          "label": "Week",
+          "resetsAt": "2026-09-05T18:59:59Z",
+          "usedPercent": 14,
+          "windowMinutes": 10080
+        },
+        {
+          "id": "weekly_scoped",
+          "kind": "weekly",
+          "label": "Fable wk",
+          "usedPercent": 20
+        }
+      ]
+    },
+    {
+      "displayName": "Kimi",
+      "id": "kimi",
+      "observedAt": "2026-08-29T18:59:59Z",
+      "origin": "unavailable",
+      "status": {
+        "message": "Run `kimi` and capture a fresh usage reading",
+        "state": "needsSetup"
+      },
+      "windows": []
+    }
+  ]
+}
