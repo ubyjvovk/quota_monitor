@@ -54,7 +54,7 @@ func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
 	}
 	group.Wait()
 
-	if liveOutcome.attempted && liveOutcome.err == nil && len(liveOutcome.provider.Windows) > 0 {
+	if liveOutcome.attempted && liveOutcome.err == nil && usable(liveOutcome.provider) {
 		return liveOutcome.provider
 	}
 
@@ -63,20 +63,24 @@ func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
 		now = time.Now
 	}
 	asOf := now()
-	if localOutcome.attempted && localOutcome.err == nil && len(localOutcome.provider.Windows) > 0 {
+	if localOutcome.attempted && localOutcome.err == nil && usable(localOutcome.provider) {
 		provider := localOutcome.provider
-		hasCurrentReading := false
-		for _, window := range provider.Windows {
-			if _, current := window.CurrentUsedPercent(asOf); current {
-				hasCurrentReading = true
-				break
+		if len(provider.Windows) > 0 {
+			hasCurrentReading := false
+			for _, window := range provider.Windows {
+				if _, current := window.CurrentUsedPercent(asOf); current {
+					hasCurrentReading = true
+					break
+				}
+			}
+			if !hasCurrentReading {
+				provider.Status = snapshot.NeedsSetup(
+					"Last reading " + format.Age(asOf.Sub(provider.ObservedAt.Time)) + "; its window has since reset",
+				)
+				return provider
 			}
 		}
-		if !hasCurrentReading {
-			provider.Status = snapshot.NeedsSetup(
-				"Last reading " + format.Age(asOf.Sub(provider.ObservedAt.Time)) + "; its window has since reset",
-			)
-		} else if liveOutcome.attempted && liveOutcome.err != nil {
+		if liveOutcome.attempted && liveOutcome.err != nil {
 			provider.Status = snapshot.NeedsSetup("Cached — live refresh failed: " + liveOutcome.err.Error())
 		}
 		return provider
@@ -87,6 +91,11 @@ func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
 		message = "No data source configured"
 	}
 	return snapshot.Unavailable(p.ID, p.DisplayName, snapshot.NeedsSetup(message), asOf)
+}
+
+// usable accepts DeepInfra's pay-as-you-go reading, which has credits but no quota windows.
+func usable(p snapshot.Provider) bool {
+	return len(p.Windows) > 0 || p.Credits != nil
 }
 
 // mostActionableMessage keeps the local error when priorities tie.

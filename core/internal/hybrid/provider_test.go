@@ -2,6 +2,7 @@ package hybrid_test
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -45,6 +46,22 @@ func TestFetchPrefersAUsableLiveReading(t *testing.T) {
 	}
 }
 
+func TestFetchPrefersAUsableLiveCreditsReading(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	live := providerWithCredits(snapshot.OriginLive, now)
+	local := providerWithWindow(snapshot.OriginLocal, now.Add(time.Hour), 18)
+
+	got := (hybrid.Provider{
+		ID: "test", DisplayName: "Test",
+		Local: localSource(local), Live: liveSource(live), LiveEnabled: true,
+		Now: func() time.Time { return now },
+	}).Fetch(context.Background())
+
+	if !reflect.DeepEqual(got, live) || got.Status.State != "ok" {
+		t.Fatalf("Fetch() = %#v, want unchanged live credits provider %#v", got, live)
+	}
+}
+
 func TestFetchLabelsLocalReadingWhenLiveFails(t *testing.T) {
 	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
 	local := providerWithWindow(snapshot.OriginLocal, now.Add(time.Hour), 18)
@@ -58,6 +75,42 @@ func TestFetchLabelsLocalReadingWhenLiveFails(t *testing.T) {
 
 	if got.Origin != snapshot.OriginLocal || got.Status.State != "needsSetup" ||
 		!strings.Contains(got.Status.Message, "Cached — live refresh failed: endpoint unavailable") {
+		t.Fatalf("Fetch() = origin %q status %#v", got.Origin, got.Status)
+	}
+}
+
+func TestFetchLabelsLocalCreditsReadingWhenLiveFails(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	local := providerWithCredits(snapshot.OriginLocal, now)
+	liveError := source.Errorf(source.Transport, "endpoint unavailable")
+
+	got := (hybrid.Provider{
+		ID: "test", DisplayName: "Test",
+		Local: localSource(local), Live: stubSource{origin: snapshot.OriginLive, err: liveError}, LiveEnabled: true,
+		Now: func() time.Time { return now },
+	}).Fetch(context.Background())
+
+	want := local
+	want.Status = snapshot.NeedsSetup("Cached — live refresh failed: endpoint unavailable")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Fetch() = %#v, want %#v", got, want)
+	}
+}
+
+func TestFetchTreatsAResultWithoutWindowsOrCreditsAsNothing(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	empty := snapshot.Provider{
+		ID: "test", DisplayName: "Test", ObservedAt: snapshot.Time{Time: now},
+		Origin: snapshot.OriginLive, Status: snapshot.OK(),
+	}
+
+	got := (hybrid.Provider{
+		ID: "test", DisplayName: "Test",
+		Live: liveSource(empty), LiveEnabled: true,
+		Now: func() time.Time { return now },
+	}).Fetch(context.Background())
+
+	if got.Origin != snapshot.OriginUnavailable || got.Status.State != "needsSetup" || got.Status.Message != "No data source configured" {
 		t.Fatalf("Fetch() = origin %q status %#v", got.Origin, got.Status)
 	}
 }
@@ -117,6 +170,16 @@ func providerWithWindow(origin snapshot.Origin, resetsAt time.Time, percent floa
 		ID: "test", DisplayName: "Test",
 		Windows:    []snapshot.Window{{ID: "window", Label: "5h", Kind: snapshot.KindSession, UsedPercent: percent, ResetsAt: &snapshot.Time{Time: resetsAt}}},
 		ObservedAt: snapshot.Time{Time: resetsAt.Add(-time.Hour)},
+		Origin:     origin, Status: snapshot.OK(),
+	}
+}
+
+func providerWithCredits(origin snapshot.Origin, observedAt time.Time) snapshot.Provider {
+	balance := "$7.75 this month"
+	return snapshot.Provider{
+		ID: "test", DisplayName: "Test",
+		Credits:    &snapshot.Credits{Unlimited: true, Balance: &balance, Enabled: true},
+		ObservedAt: snapshot.Time{Time: observedAt},
 		Origin:     origin, Status: snapshot.OK(),
 	}
 }

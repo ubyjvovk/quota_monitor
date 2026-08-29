@@ -65,15 +65,35 @@ func waybarProvider(id, displayName string, percent float64, now time.Time) snap
 	}
 }
 
-func TestRenderWaybarRendersAWindowlessDeepInfraAsDash(t *testing.T) {
-	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
-	provider := waybarProvider("deepinfra", "DeepInfra", 0, now)
-	provider.Plan = nil
-	provider.Windows = []snapshot.Window{}
+func TestRenderWaybarRendersWindowlessDeepInfraCreditsInTooltip(t *testing.T) {
+	tests := []struct {
+		name    string
+		balance string
+		want    string
+	}{
+		{name: "balance", balance: "$7.75 this month", want: "  $7.75 this month"},
+		{name: "unlimited", want: "  unlimited"},
+	}
 
-	got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+			provider := waybarProvider("deepinfra", "DeepInfra", 0, now)
+			provider.Plan = nil
+			provider.Windows = []snapshot.Window{}
+			provider.Credits = &snapshot.Credits{Unlimited: true, Enabled: true}
+			if test.balance != "" {
+				provider.Credits.Balance = &test.balance
+			}
 
-	if got.Text != "DI —" {
-		t.Fatalf("renderWaybar().Text = %q, want the DI short name with a dash", got.Text)
+			got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
+
+			if got.Text != "DI —" {
+				t.Fatalf("renderWaybar().Text = %q, want the DI short name with a dash", got.Text)
+			}
+			if !strings.Contains(got.Tooltip, "\n"+test.want) {
+				t.Fatalf("renderWaybar().Tooltip = %q, want line %q", got.Tooltip, test.want)
+			}
+		})
 	}
 }
