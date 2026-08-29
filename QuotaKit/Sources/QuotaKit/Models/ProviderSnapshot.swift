@@ -35,6 +35,73 @@ public enum ProviderStatus: Codable, Hashable, Sendable {
     }
 
     public var isOK: Bool { if case .ok = self { true } else { false } }
+
+    private enum CodingKeys: String, CodingKey {
+        case state, message
+        case ok, needsSetup, failed
+    }
+
+    private enum LegacyPayloadKeys: String, CodingKey {
+        case value = "_0"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        if container.contains(.state) {
+            switch try container.decode(String.self, forKey: .state) {
+            case "ok":
+                self = .ok
+            case "needsSetup":
+                self = .needsSetup(try container.decode(String.self, forKey: .message))
+            case "failed":
+                self = .failed(try container.decode(String.self, forKey: .message))
+            case let state:
+                throw DecodingError.dataCorruptedError(
+                    forKey: .state,
+                    in: container,
+                    debugDescription: "Unknown provider status state \(state)"
+                )
+            }
+            return
+        }
+
+        if container.contains(.ok) {
+            _ = try container.nestedContainer(keyedBy: LegacyPayloadKeys.self, forKey: .ok)
+            self = .ok
+            return
+        }
+
+        for (key, makeStatus) in [
+            (CodingKeys.needsSetup, ProviderStatus.needsSetup),
+            (CodingKeys.failed, ProviderStatus.failed),
+        ] where container.contains(key) {
+            let payload = try container.nestedContainer(
+                keyedBy: LegacyPayloadKeys.self,
+                forKey: key
+            )
+            self = makeStatus(try payload.decode(String.self, forKey: .value))
+            return
+        }
+
+        throw DecodingError.dataCorrupted(
+            .init(codingPath: decoder.codingPath, debugDescription: "Unknown provider status shape")
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .ok:
+            try container.encode("ok", forKey: .state)
+        case .needsSetup(let message):
+            try container.encode("needsSetup", forKey: .state)
+            try container.encode(message, forKey: .message)
+        case .failed(let message):
+            try container.encode("failed", forKey: .state)
+            try container.encode(message, forKey: .message)
+        }
+    }
 }
 
 public struct Credits: Codable, Hashable, Sendable {

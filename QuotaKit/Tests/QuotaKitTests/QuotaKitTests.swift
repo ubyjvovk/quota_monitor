@@ -484,6 +484,38 @@ private func stubSnapshot(usedPercent: Double, origin: SnapshotOrigin) -> Provid
     #expect(restored.providers.first?.credits == provider.credits)
 }
 
+@Test func snapshotV2FixtureDecodesInQuotaKit() throws {
+    let data = try Data(contentsOf: fixture("snapshot-v2", "json"))
+    let snapshot = try QuotaSnapshot.decode(from: data)
+
+    #expect(snapshot.providers.count == 2)
+
+    let claude = try #require(snapshot.providers.first { $0.id == "claude" })
+    #expect(claude.windows.count == 3)
+    #expect(claude.credits?.enabled == false)
+    #expect(claude.status == .ok)
+
+    let kimi = try #require(snapshot.providers.first { $0.id == "kimi" })
+    #expect(kimi.status == .needsSetup("Run `kimi` and capture a fresh usage reading"))
+}
+
+@Test func providerStatusDecodesLegacyShapesAndEncodesV2() throws {
+    let decoder = JSONDecoder()
+    let setup = try decoder.decode(
+        ProviderStatus.self,
+        from: Data(#"{"needsSetup":{"_0":"x"}}"#.utf8)
+    )
+    let ok = try decoder.decode(ProviderStatus.self, from: Data(#"{"ok":{}}"#.utf8))
+
+    #expect(setup == .needsSetup("x"))
+    #expect(ok == .ok)
+
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let encoded = try encoder.encode(ProviderStatus.needsSetup("x"))
+    #expect(String(decoding: encoded, as: UTF8.self) == #"{"message":"x","state":"needsSetup"}"#)
+}
+
 // MARK: - Pace
 
 private let paceReset = Date(timeIntervalSince1970: 1_800_000_000)
