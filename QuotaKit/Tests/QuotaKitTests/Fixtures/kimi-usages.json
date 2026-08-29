@@ -1,0 +1,40 @@
+{
+  "user": {
+    "userId": "REDACTED",
+    "region": "REGION_OVERSEA",
+    "membership": {
+      "level": "LEVEL_BASIC"
+    },
+    "businessId": ""
+  },
+  "usage": {
+    "limit": "100",
+    "used": "3",
+    "remaining": "97",
+    "resetTime": "2026-09-04T09:42:34.674165Z"
+  },
+  "limits": [
+    {
+      "window": {
+        "duration": 300,
+        "timeUnit": "TIME_UNIT_MINUTE"
+      },
+      "detail": {
+        "limit": "100",
+        "used": "14",
+        "remaining": "86",
+        "resetTime": "2026-08-30T01:42:34.674165Z"
+      }
+    }
+  ],
+  "parallel": {
+    "limit": "10"
+  },
+  "totalQuota": {},
+  "authentication": {
+    "method": "METHOD_ACCESS_TOKEN",
+    "scope": "FEATURE_CODING"
+  },
+  "subType": "TYPE_PURCHASE",
+  "domain": "DOMAIN_NEXUS"
+}

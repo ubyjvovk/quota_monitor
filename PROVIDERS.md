@@ -235,29 +235,55 @@ the user they have three separate budgets. Show the single
 
 ---
 
-## Kimi (Moonshot) — NO QUOTA ENDPOINT FOUND
+## Kimi (Moonshot) — WORKING (found 2026-08-29, second attempt)
 
 **Credential.** `~/.kimi-code/credentials/kimi-code.json` —
-`access_token`, `refresh_token`, `expires_at`, `expires_in: 900`. The token
-lifetime is **15 minutes**, so expect it to be stale and plan for refresh.
-Base URL from `~/.kimi-code/config.toml`: `https://api.kimi.com/coding/v1`.
+`access_token`, `refresh_token`, `expires_at` (epoch **seconds**),
+`expires_in: 900`, `scope`, `token_type`. The token lifetime is **15
+minutes**; the Kimi TUI refreshes it on launch. The refresh endpoint is not
+yet known — on a 401, report "Kimi sign-in expired — run `kimi` once" rather
+than guessing. Base URL from `~/.kimi-code/config.toml`:
+`https://api.kimi.com/coding/v1`.
 
-`GET /coding/v1/me` returns **200** but is **identity only**: `user_id`,
-`nickname`, `avatar`, **`phone.number`**, `user_level`, `status`, `region`.
-It carries PII and no quota — there is no reason for this tool to call it.
+**Endpoint.**
 
-404 on all of: `/usage`, `/quota`, `/balance`, `/subscription`, `/plan`,
-`/limits`, `/me/quota`, `/me/usage`, `/users/me`, `/users/me/balance`,
-`/oauth/usage`, `/plan/usage`, and the same paths without the `/coding`
-prefix.
+```
+GET https://api.kimi.com/coding/v1/usages        ← plural
+Authorization: Bearer <access_token>
+Accept: application/json
+```
 
-The `/usage`- and `/balance`-shaped strings inside the `kimi` binary are
-**bundler source paths** (`/packages/agent-core-v2/src/agent/usage/…`), not API
-routes — a false lead worth not re-chasing.
+Verified **200**. Fixture: `kimi-usages.json` (userId redacted).
 
-**Verdict:** Kimi most likely surfaces usage in-session only, like Codex's
-header-based limits. To settle it, capture the traffic of the Kimi TUI while it
-displays usage, the way Grok's endpoint was found.
+```json
+{"user":{"userId":"…","region":"REGION_OVERSEA","membership":{"level":"LEVEL_BASIC"}},
+ "usage":{"limit":"100","used":"3","remaining":"97","resetTime":"2026-09-04T09:42:34.674165Z"},
+ "limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},
+            "detail":{"limit":"100","used":"14","remaining":"86","resetTime":"2026-08-30T01:42:34.674165Z"}}],
+ "parallel":{"limit":"10"},"subType":"TYPE_PURCHASE"}
+```
+
+- `usage` is the **weekly** pool (the TUI labels it "Weekly limit"; the
+  reset is ~7 days out). Percent = `used / limit * 100` — note the numbers
+  are **strings**.
+- `limits[]` entries are extra windows described by `window.duration` +
+  `window.timeUnit` (`TIME_UNIT_MINUTE`; 300 → the 5-hour window). Infer the
+  label/kind from the duration, never assume.
+- `membership.level` (`LEVEL_BASIC`) is the closest thing to a plan name.
+- `user.userId` is an identifier — do not store it.
+
+**How it was found** (the earlier verdict below was wrong): the TUI's
+`/usage` command was driven inside `tmux` while a `NODE_OPTIONS=--require`
+hook logged every `fetch`/`http.request` URL — the launcher is a Node
+single-executable and honours `NODE_OPTIONS`. Ten minutes, zero guessing.
+Do this first next time a CLI shows a number and the endpoint is unknown.
+
+**Earlier dead ends (kept so nobody repeats them):** 404 on `/usage`,
+`/quota`, `/balance`, `/subscription`, `/plan`, `/limits`, `/me/quota`,
+`/me/usage`, `/users/me`, `/users/me/balance`, `/oauth/usage`,
+`/plan/usage`. `/coding/v1/me` is identity only and returns a **phone
+number** — never call it. The `/usage` strings in the binary are bundler
+paths, not routes.
 
 ---
 
