@@ -346,3 +346,23 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
 - Not yet ticketed (GO-PORT cutover steps 2–3): freeze notice in AGENTS.md
   is done; mac-app bundling of `quotamon` and deleting Swift fetchers await
   the user's go-ahead since App/ is on hold.
+
+### Phase 2 + CLI landed — 2026-08-29 ~21:35
+- Accepted: T-0012 Grok (ds lane's first landing), T-0013 DeepInfra, T-0014
+  app-server stdin fix, T-0015 bare `quotamon` table + `--json`.
+- Live on master: Claude, ChatGPT (app-server), Grok; DeepInfra live works
+  (~4.7 s, `/payment/usage` is slow) but is dropped by the hybrid merge
+  because it has zero windows by design → **T-0017 (P0/C1, in progress)**.
+- User decisions on config (2026-08-29): JSON; API keys allowed in the file
+  with 0600 enforced; config mandatory; `setup` auto-discovers known
+  providers, shows findings, asks per provider, offers manual add. Tickets
+  T-0018 (config + discover + registry gate) → T-0019 (setup/providers) →
+  T-0016 (user docs, last so it documents the real first run).
+- PM slips caught by workers this session: T-0010 wall-clock, T-0013
+  timezone (I converted ms→Pacific), T-0012 `check --no-live` contradiction,
+  T-0015 `depends_on` that was only a scope collision (user caught that one).
+  Lesson: compute timestamps with `date -u -r`, never by hand; and for scope
+  collisions prefer disjoint files over `depends_on`.
+- `ds` lane fixed: pi needed a custom provider in `~/.pi/agent/models.json`
+  (`deepinfra`, `apiKey: "$DEEPINFRA_KEY"`); model id is
+  `deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731`.
