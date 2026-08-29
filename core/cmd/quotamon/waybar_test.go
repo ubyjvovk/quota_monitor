@@ -79,32 +79,45 @@ func waybarProvider(id, displayName string, percent float64, now time.Time) snap
 func TestRenderWaybarRendersWindowlessDeepInfraCreditsInTooltip(t *testing.T) {
 	tests := []struct {
 		name    string
-		balance string
-		want    string
+		credits snapshot.Credits
+		want    []string
 	}{
-		{name: "balance", balance: "$7.75 this month", want: "  $7.75 this month"},
-		{name: "unlimited", want: "  unlimited"},
+		{
+			name:    "prepaid balance and spend are two lines",
+			credits: snapshot.Credits{HasCredits: true, Unlimited: false, Balance: stringPointer("$10.03"), Enabled: true, Spend: stringPointer("$7.75 this month")},
+			want:    []string{"  balance   $10.03 remaining", "  spend     $7.75 this month"},
+		},
+		{
+			name:    "spend only keeps a single spend line",
+			credits: snapshot.Credits{Unlimited: true, Enabled: true, Balance: stringPointer("$7.75 this month")},
+			want:    []string{"  spend     $7.75 this month"},
+		},
+		{
+			name:    "unlimited with no reported balance",
+			credits: snapshot.Credits{Unlimited: true, Enabled: true},
+			want:    []string{"  credits   unlimited"},
+		},
 	}
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
 			provider := waybarProvider("deepinfra", "DeepInfra", 0, now)
 			provider.Plan = nil
 			provider.Windows = []snapshot.Window{}
-			provider.Credits = &snapshot.Credits{Unlimited: true, Enabled: true}
-			if test.balance != "" {
-				provider.Credits.Balance = &test.balance
-			}
+			provider.Credits = &test.credits
 
 			got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
 
 			if got.Text != "DI —" {
 				t.Fatalf("renderWaybar().Text = %q, want the DI short name with a dash", got.Text)
 			}
-			if !strings.Contains(got.Tooltip, "\n"+test.want) {
-				t.Fatalf("renderWaybar().Tooltip = %q, want line %q", got.Tooltip, test.want)
+			for _, want := range test.want {
+				if !strings.Contains(got.Tooltip, "\n"+want) {
+					t.Fatalf("renderWaybar().Tooltip = %q, want line %q", got.Tooltip, want)
+				}
 			}
 		})
 	}
 }
+
+func stringPointer(value string) *string { return &value }

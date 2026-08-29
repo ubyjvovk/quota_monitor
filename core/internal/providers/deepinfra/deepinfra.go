@@ -1,7 +1,8 @@
-// Package deepinfra reads DeepInfra month-to-date spend from its payment API.
-// DeepInfra is pay-as-you-go: there is no quota and no prepaid balance, so the
-// honest readout is spend, and a percentage exists only when the account has a
-// spending limit set. This package never invents a ceiling where none exists.
+// Package deepinfra reads DeepInfra month-to-date spend and prepaid balance
+// from its payment API. DeepInfra is pay-as-you-go: there is no quota window
+// beyond an optional spending limit, and a percentage exists only when the
+// account has that limit set. The account also carries a prepaid balance from
+// /payment/checklist; this package never invents a ceiling where none exists.
 package deepinfra
 
 import (
@@ -21,18 +22,67 @@ const (
 // plan is DeepInfra's subscription class; it has no tiers, only spend.
 var plan = "pay-as-you-go"
 
-// Snapshot normalises a DeepInfra config and usage reading into one provider
-// picture. Beyond a positive spending limit there is no quota to speak of, so
-// the percentage window exists only then; otherwise the provider reports spend
-// with no percentage rather than a misleading zero. Credits are always spend,
-// never a spendable balance, hence HasCredits is always false.
-func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time.Time, observedAt time.Time) snapshot.Provider {
-	balance := fmt.Sprintf("$%.2f this month", spentUSD)
+// Balance carries the money/status fields extracted from /payment/checklist.
+// Only these fields are read; the response also carries the user's postal
+// address and payment method, which must never be retained.
+type Balance struct {
+	// Stripe is the prepaid balance in USD: negative is funds ready to spend,
+	// positive is money owed, zero means no prepaid funds.
+	Stripe float64
+	// Recent is the not-yet-invoiced usage in USD that will be debited from
+	// Stripe once the usage invoice is issued, so the spendable headroom is
+	// -Stripe - Recent rather than the raw Stripe figure.
+	Recent float64
+	// Known reports whether the checklist was read successfully. When false the
+	// spend-only fallback is used because there is no balance to trust.
+	Known bool
+	// Suspended reports whether the account is barred from spending.
+	Suspended bool
+	// SuspendReason is why the account is suspended, when Suspended is true.
+	SuspendReason string
+	// OverdueInvoices is how many unpaid invoices exist when > 0.
+	OverdueInvoices int
+}
+
+// Snapshot normalises DeepInfra config, usage, and checklist readings into one
+// provider picture. Beyond a positive spending limit there is no quota to speak
+// of, so the percentage window exists only then; otherwise the provider reports
+// spend with no percentage rather than a misleading zero.
+func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time.Time, observedAt time.Time, balance Balance) snapshot.Provider {
+	// Spend always reflects usage; it is what the account has actually burnt.
+	spend := fmt.Sprintf("$%.2f this month", spentUSD)
 	credits := snapshot.Credits{
 		HasCredits: false,
 		Unlimited:  !hasLimit,
-		Balance:    &balance,
+		Balance:    &spend,
 		Enabled:    true,
+		Spend:      &spend,
+	}
+
+	if balance.Known {
+		// stripe_balance is funds on account BEFORE the not-yet-invoiced usage in
+		// recent; credit is debited only when the usage invoice is issued, so the
+		// spendable headroom is -Stripe - Recent (the dashboard's "remaining").
+		remaining := -balance.Stripe - balance.Recent
+		switch {
+		case remaining > 0:
+			prepaid := fmt.Sprintf("$%.2f", remaining)
+			credits.HasCredits = true
+			credits.Unlimited = false
+			credits.Balance = &prepaid
+		case remaining == 0:
+			zero := "$0.00"
+			credits.HasCredits = false
+			credits.Unlimited = false
+			credits.Balance = &zero
+		default:
+			// A negative remaining balance is money owed to DeepInfra, not headroom.
+			owed := fmt.Sprintf("$%.2f owed", -remaining)
+			credits.HasCredits = false
+			credits.Unlimited = false
+			credits.Balance = &owed
+		}
+		credits.Enabled = !balance.Suspended
 	}
 
 	var windows []snapshot.Window
@@ -56,6 +106,18 @@ func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time
 		windows = []snapshot.Window{}
 	}
 
+	status := snapshot.OK()
+	if balance.Known {
+		switch {
+		case balance.Suspended:
+			// A suspended account cannot spend; surface why over anything else.
+			status = snapshot.Failed("DeepInfra account suspended: " + balance.SuspendReason)
+		case balance.OverdueInvoices > 0:
+			// Money is owed, so the difference from the owed mapping matters.
+			status = snapshot.NeedsSetup(fmt.Sprintf("DeepInfra has $%d in overdue invoices", balance.OverdueInvoices))
+		}
+	}
+
 	return snapshot.Provider{
 		ID:          ProviderID,
 		DisplayName: DisplayName,
@@ -64,6 +126,6 @@ func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time
 		Credits:     &credits,
 		ObservedAt:  snapshot.Time{Time: observedAt},
 		Origin:      snapshot.OriginLive,
-		Status:      snapshot.OK(),
+		Status:      status,
 	}
 }

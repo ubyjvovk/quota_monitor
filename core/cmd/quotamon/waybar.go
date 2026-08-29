@@ -78,13 +78,9 @@ func providerTooltip(provider snapshot.Provider, now time.Time) string {
 		lines = append(lines, "  "+window.Label+"  "+used+"  "+reset)
 	}
 	if len(provider.Windows) == 0 && provider.Credits != nil {
-		balance := ""
-		if provider.Credits.Balance != nil {
-			balance = *provider.Credits.Balance
-		} else if provider.Credits.Unlimited {
-			balance = "unlimited"
-		}
-		lines = append(lines, "  "+balance)
+		// A windowless credits provider renders its credit rows the same way the
+		// table does, so the waybar tooltip and the table never disagree.
+		lines = append(lines, creditLines(*provider.Credits)...)
 	}
 	if provider.Status.State != "ok" {
 		status := provider.Status.Message

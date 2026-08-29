@@ -80,6 +80,28 @@ func TestSnapshotAndProviderEncodeNilSlicesAsArrays(t *testing.T) {
 	}
 }
 
+func TestCreditsEncodesTheSpendFieldSeparatelyFromBalance(t *testing.T) {
+	balance := "$18.00"
+	spend := "$7.75 this month"
+	encoded, err := json.Marshal(snapshot.Credits{
+		HasCredits: true,
+		Unlimited:  false,
+		Balance:    &balance,
+		Enabled:    true,
+		Spend:      &spend,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		t.Fatal(err)
+	}
+	if object["balance"] != "$18.00" || object["spend"] != "$7.75 this month" {
+		t.Fatalf("encoded credits = %s, want both balance and spend", encoded)
+	}
+}
+
 func TestTimeEmitsWholeUTCSecondsAndAcceptsRFC3339Nano(t *testing.T) {
 	input := time.Date(2026, 8, 29, 18, 59, 59, 741_925_000, time.UTC)
 	encoded, err := json.Marshal(snapshot.Time{Time: input})

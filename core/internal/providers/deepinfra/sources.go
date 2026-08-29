@@ -79,6 +79,7 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	}
 	configResult := make(chan result, 1)
 	usageResult := make(chan result, 1)
+	checklistResult := make(chan result, 1)
 	fetch := func(path string, output chan<- result) {
 		callContext, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
@@ -87,12 +88,19 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	}
 	go fetch("/payment/config", configResult)
 	go fetch("/payment/usage?from=current", usageResult)
+	go fetch("/payment/checklist", checklistResult)
 
 	configResponse := <-configResult
 	usageResponse := <-usageResult
+	checklistResponse := <-checklistResult
 	if usageResponse.err != nil {
-		if isUnauthorized(configResponse.err) && !isUnauthorized(usageResponse.err) {
+		// Usage is the essential reading. A sibling Unauthorized is more
+		// actionable (the key is bad), so surface it over the usage breakdown.
+		if isUnauthorized(configResponse.err) {
 			return snapshot.Provider{}, configResponse.err
+		}
+		if isUnauthorized(checklistResponse.err) {
+			return snapshot.Provider{}, checklistResponse.err
 		}
 		return snapshot.Provider{}, usageResponse.err
 	}
@@ -136,11 +144,61 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 		}
 	}
 
-	provider := Snapshot(limitUSD, limitUSD > 0, spentUSD, periodEnd, time.Now())
-	if configResponse.err != nil {
-		provider.Status = snapshot.NeedsSetup(fmt.Sprintf("Spending limit unknown — DeepInfra /payment/config: %v", configResponse.err))
+	// A checklist failure is not fatal: usage still gives a spend-only reading,
+	// and whether the account holds prepaid funds is reported as a setup issue
+	// instead.
+	balance := Balance{}
+	if checklistResponse.err == nil {
+		balance = balanceFromChecklist(checklistResponse.value)
+	}
+
+	provider := Snapshot(limitUSD, limitUSD > 0, spentUSD, periodEnd, time.Now(), balance)
+	if !balance.Suspended {
+		// A suspended account already reports a Failed status; neither missing
+		// ceiling nor missing balance should hide that. Order matters: the
+		// spending-limit message wins when both endpoints are down, matching the
+		// pre-balance behaviour.
+		if checklistResponse.err != nil {
+			provider.Status = snapshot.NeedsSetup(fmt.Sprintf("Balance unavailable — DeepInfra /payment/checklist: %v", checklistResponse.err))
+		}
+		if configResponse.err != nil {
+			provider.Status = snapshot.NeedsSetup(fmt.Sprintf("Spending limit unknown — DeepInfra /payment/config: %v", configResponse.err))
+		}
 	}
 	return provider, nil
+}
+
+// balanceFromChecklist extracts only the money/status fields from the response
+// body. The same payload also carries the user's postal address and payment
+// method; those are deliberately not read and the body is never retained.
+func balanceFromChecklist(checklist any) Balance {
+	balance := Balance{Known: true}
+	if value, found := jsonx.Get(checklist, "stripe_balance"); found {
+		if amount, valid := jsonx.Float(value); valid {
+			balance.Stripe = amount
+		}
+	}
+	if value, found := jsonx.Get(checklist, "recent"); found {
+		if amount, valid := jsonx.Float(value); valid {
+			balance.Recent = amount
+		}
+	}
+	if value, found := jsonx.Get(checklist, "suspended"); found {
+		if suspended, valid := jsonx.Bool(value); valid {
+			balance.Suspended = suspended
+		}
+	}
+	if value, found := jsonx.Get(checklist, "suspend_reason"); found {
+		if reason, valid := jsonx.String(value); valid {
+			balance.SuspendReason = reason
+		}
+	}
+	if value, found := jsonx.Get(checklist, "overdue_invoices"); found {
+		if overdue, valid := jsonx.Float(value); valid {
+			balance.OverdueInvoices = int(overdue)
+		}
+	}
+	return balance
 }
 
 func isUnauthorized(err error) bool {
