@@ -375,6 +375,34 @@ percentage.
 
 ---
 
+## Replicate — EXCLUDED (no billing via the API token)
+
+**Credential.** API token in the environment (`REPLICATE_KEY`). It authorises
+the public API only.
+
+**Verdict:** the public API (`api.replicate.com/v1/...`) has **no** billing,
+spend, credit, usage, invoice, or limit endpoint. `GET /v1/account` returns
+identity only (`username`, `name`, `avatar_url`, `github_url`, `type`) — no
+money. 404 on `/v1/billing`, `/v1/usage`, `/v1/spend`, `/v1/credits`,
+`/v1/invoices`, `/v1/limits`, `/v1/account/{billing,usage,credits,limits}`,
+and the same under `replicate.com/api/...`. The docs' HTTP reference lists no
+billing path.
+
+The dashboard number (`replicate.com/api/users/<user>/unused-credit`) is
+**cookie-gated**: it is authorised by the browser login session, not the API
+token. With `Authorization: Bearer <REPLICATE_KEY>` it returns **403 "You do
+not have permission"**. Reaching it would mean reusing the browser session
+cookie — barred by rule 7 below (no cookies lifted from a browser). The only
+quota-like API signal is the short-window `ratelimit-remaining` / `ratelimit-reset`
+response headers (~3000/second), which are an API request rate limit, not
+subscription spend, and are useless as a quota reading.
+
+**Decision (user, 2026-08-30): do not add Replicate.** Revisit only if
+Replicate ships a documented spend/credit endpoint reachable with the API
+token. Do not re-chase the dashboard route.
+
+---
+
 ## Cross-cutting rules learned the hard way
 
 1. **A window that has reset reports no reading, never `0%`.** Zero reads as
