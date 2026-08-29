@@ -386,3 +386,17 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
 - Next candidates (need user decision): Mac app cutover (GO-PORT step 3,
   `App/` on hold); AUR/curl install; history/pace in Go; Windows tray;
   Kimi endpoint capture.
+
+### Wave 4 — 2026-08-30 ~00:05
+- Accepted since last note: T-0021 table (bars, colour), T-0022 Kimi provider
+  (endpoint found via NODE_OPTIONS hook on the TUI: `coding/v1/usages`),
+  T-0023 DeepInfra parallel calls, T-0024 setup --yes adoption, T-0027
+  DeepInfra balance (remaining = −stripe_balance − recent, user-verified),
+  T-0025 last-reading cache + Kimi refresh by launching the CLI (home dir,
+  own 20 s clock, 25 s pre-fetch stage). 24 done.
+- User decisions: no OAuth token rotation by quotamon; Kimi refresh = launch
+  the CLI briefly via script(1) pty; refresh rarely (cache while token stale).
+- In flight/queued: T-0026 refresher hygiene (pgid kill, flock, orphan sweep,
+  rate cap) — P0; T-0028 fetch budget 15 s + --timeout + cents rounding.
+- Findings worth keeping: Kimi TUI blocks on "Trust this folder?" outside
+  trusted cwd; `kimi -p "/usage"` spends tokens; DeepInfra latency 2–7 s.
