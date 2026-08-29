@@ -41,8 +41,14 @@
 (allow file-read*)
 ;; ... minus the user's private files ...
 (deny file-read* (subpath (param "HOMEDIR")))
-;; ... but path lookup must still traverse $HOME itself (metadata only),
-(allow file-read-metadata (literal (param "HOMEDIR")))
+;; ... but path lookup must stay possible: every tool that resolves a path
+;; stats each component on the way down, so metadata (names, existence,
+;; mode — never contents) is allowed everywhere. Without this, a project
+;; nested below $HOME (~/b/project — the intermediate ~/b falls under the
+;; deny above) breaks `git` with "fatal: Invalid path: Operation not
+;; permitted" and `codesign` with EPERM, which on macOS fails every
+;; `swift build` that produces an executable. Contents stay denied.
+(allow file-read-metadata)
 ;; ... plus the project (it usually lives under $HOME) and the worktree,
 (allow file-read*
   (subpath (param "ROOT"))
