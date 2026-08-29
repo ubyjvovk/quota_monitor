@@ -1,32 +1,79 @@
 # Agent orientation
 
 <!-- Maintained by the Tiger Team PM. Workers and agent CLIs read this first;
-     workers never edit it. Keep it short, current, and written for a capable
-     stranger with zero context. Update it whenever accepted work changes the
-     map. -->
+     workers never edit it. -->
 
 ## What this project is
-<one paragraph: purpose, runtime, who consumes it>
+QuotaKit shows how much of your LLM subscription quota you have left — Claude
+(Anthropic) and ChatGPT (Codex). Each provider has a **local** source (a file
+some CLI already writes) and a **live** source (an authenticated HTTP endpoint);
+`HybridProvider` runs both and prefers live, falling back to the cached local
+reading with an explanatory status. Everything normalises to `ProviderSnapshot`
+→ `[QuotaWindow]` with a `usedPercent` and a `resetsAt`.
+
+**Current focus is the console tool `quotactl`.** The macOS menu-bar app and
+widget are ON HOLD — the human is reworking their UI separately.
 
 ## Layout
-<dir → purpose, one line each; only what matters>
+- `QuotaKit/Sources/QuotaKit/Providers/` — per-provider sources. **Most work lands here.**
+- `QuotaKit/Sources/QuotaKit/Models/` — `ProviderSnapshot`, `QuotaWindow`, `UsagePace`.
+- `QuotaKit/Sources/QuotaKit/Support/` — `JSONValue` (loose JSON), `Keychain`, `QuotaFormat`.
+- `QuotaKit/Sources/QuotaKit/Engine/` — refresh loop + snapshot/history persistence.
+- `QuotaKit/Sources/QuotaKit/UI/` — SwiftUI helpers. **On hold, do not edit.**
+- `QuotaKit/Sources/quotactl/main.swift` — the console tool.
+- `QuotaKit/Tests/QuotaKitTests/` — the whole suite, plus `Fixtures/`.
+- `App/`, `Widget/`, `QuotaMonitor.xcodeproj/`, `project.yml` — **ON HOLD, do not edit.**
+  They are not built by the test command; changes there cannot be verified and
+  will be rejected.
+- `QuotaKit/.build/` — generated. Never edit, never commit.
 
 ## Conventions
-<naming, error handling, test style, docstring expectations — the things a
-stranger would get subtly wrong>
+- Swift 6 with strict concurrency. Anything crossing an `async` boundary is
+  `Sendable`; sources are `struct`s conforming to `QuotaSource`.
+- Tests use **swift-testing**, not XCTest: `@Test func name() async throws`,
+  `#expect(...)`, `#require(...)`. Test names are sentences describing the
+  behaviour (`cachedReadingIsKeptAndLabelledWhenLiveFails`), not `testFoo`.
+- **Dependencies are injected through the initialiser with a working default.**
+  `CodexLocalSource(home:)`, `ClaudeLiveSource(baseURL:session:credentialsProvider:)`.
+  This is how anything touching the network, the Keychain, or `$HOME` gets
+  tested — follow it for every new source.
+- Comments explain *why*, not *what*. Several comments in this codebase record a
+  real incident; do not delete them when editing nearby code.
+- Errors are `QuotaError` cases whose message tells the user what to *do*
+  ("run `claude` in a terminal to sign in again"), never a raw status code.
 
 ## Config
-- Project config is root `tigerteam.toml` (optional `~/.tigerteam.toml` for
-  machine-local facts). Full chain: `references/config-reference.md`.
-- The runner injects `TIGERTEAM_TEST_CMD` from resolved `test_cmd` into every
-  worker environment; `run-tests.sh` uses that env var first, then
-  `tigerteam config get test_cmd`.
+- Project config is root `tigerteam.toml` (machine-local facts in `~/.tigerteam.toml`).
+- The runner injects `TIGERTEAM_TEST_CMD` into every worker environment;
+  `run-tests.sh` uses that first, then `tigerteam config get test_cmd`.
 
 ## Commands
-- Tests: `bash .tigerteam/scripts/run-tests.sh` (the ONLY way to run tests;
-  needs `TIGERTEAM_TEST_CMD` or `test_cmd` in `tigerteam.toml`)
-- <build / lint / run, if any>
+- Tests: `bash .tigerteam/scripts/run-tests.sh` — the ONLY way to run tests.
+- Run the console tool by hand:
+  `swift run --disable-sandbox --package-path QuotaKit quotactl`
 
 ## Landmarks & gotchas
-<the 3–5 things that repeatedly surprise newcomers: quirky modules, load-time
-side effects, files that look editable but are generated, etc.>
+1. **You run inside a Seatbelt sandbox, and it is strict.** `$HOME` is
+   unreadable apart from a few carved-out dirs; the project root is READ-ONLY
+   outside your worktree; `<root>/.env` is masked. Write only inside your
+   worktree.
+2. **`swift` needs `--disable-sandbox` here.** SwiftPM evaluates `Package.swift`
+   in its own nested `sandbox-exec`, and macOS refuses to nest sandboxes — without
+   the flag you get `sandbox_apply: Operation not permitted`. `test_cmd` already
+   has it; add it to any `swift` command you run by hand.
+3. **Never make a test touch the real Keychain, the real network, or the real
+   `$HOME`.** Those all fail or hang under the sandbox, and would be flaky
+   outside it. Inject a stub (see Conventions). A test that shells out to
+   `security` or hits `api.anthropic.com` will be rejected.
+4. `JSONValue.firstValue(forKey:)` searches **breadth-first through the whole
+   document** and returns an arbitrary match when a key repeats. It is fine for
+   usage payloads, and actively dangerous for credential blobs — the Claude
+   Keychain item holds `claudeAiOauth` *and* a `mcpOAuth` map with a dozen other
+   services' `accessToken`s. Address credentials by explicit path. This bug
+   shipped once already; see the comment on `Claude.credentials(from:)`.
+5. A quota window that has reset since it was recorded reports **no reading**
+   (`nil`), never `0%`. `currentUsedPercent()` enforces this; UI and CLI must
+   render `—` rather than a zero the user would misread as "plenty left".
+6. Fixtures live in `Tests/QuotaKitTests/Fixtures/` and are loaded via
+   `Bundle.module`; new fixture files need no `Package.swift` change (the whole
+   directory is copied).

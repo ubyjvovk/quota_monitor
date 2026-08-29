@@ -68,6 +68,14 @@
   (subpath (string-append (param "HOMEDIR") "/.bun"))
   (subpath (string-append (param "HOMEDIR") "/Library/Caches/uv"))
   (subpath (string-append (param "HOMEDIR") "/Library/Caches/pip"))
+  ;; SwiftPM / Xcode toolchain state: manifest + dependency caches and the
+  ;; user-level configuration/security dirs. Without these `swift build`
+  ;; degrades to "user-level cache features disabled" and recompiles the
+  ;; package manifest on every single invocation.
+  (subpath (string-append (param "HOMEDIR") "/.swiftpm"))
+  (subpath (string-append (param "HOMEDIR") "/Library/org.swift.swiftpm"))
+  (subpath (string-append (param "HOMEDIR") "/Library/Caches/org.swift.swiftpm"))
+  (subpath (string-append (param "HOMEDIR") "/Library/Developer"))
   ;; Login keychain db files: claude login_auth reads credentials via the
   ;; legacy SecKeychain path, which memory-maps the db IN-PROCESS (securityd
   ;; only mediates unlock/ACL). The files are encrypted at rest and per-item
@@ -110,6 +118,14 @@
   (subpath (string-append (param "HOMEDIR") "/.bun"))
   (subpath (string-append (param "HOMEDIR") "/Library/Caches/uv"))
   (subpath (string-append (param "HOMEDIR") "/Library/Caches/pip"))
+  ;; SwiftPM / Xcode toolchain state: manifest + dependency caches and the
+  ;; user-level configuration/security dirs. Without these `swift build`
+  ;; degrades to "user-level cache features disabled" and recompiles the
+  ;; package manifest on every single invocation.
+  (subpath (string-append (param "HOMEDIR") "/.swiftpm"))
+  (subpath (string-append (param "HOMEDIR") "/Library/org.swift.swiftpm"))
+  (subpath (string-append (param "HOMEDIR") "/Library/Caches/org.swift.swiftpm"))
+  (subpath (string-append (param "HOMEDIR") "/Library/Developer"))
   ;; keychain token refresh rewrites the db in place (see read note above).
   (subpath (string-append (param "HOMEDIR") "/Library/Keychains"))
   (literal "/dev/null")

@@ -2,7 +2,11 @@
 # Resolution chain: defaults -> ~/.tigerteam.toml -> <root>/tigerteam.toml
 # -> curated WORKER_* env -> --set key=value.  NO SECRETS in this file — only names.
 
-# test_cmd = "bash .tigerteam/scripts/run-tests.sh"
+# --disable-sandbox is REQUIRED here: SwiftPM evaluates Package.swift inside its
+# own nested `sandbox-exec`, and macOS refuses to nest Seatbelt sandboxes, so a
+# worker running under sandbox_profile fails with "sandbox_apply: Operation not
+# permitted" without it. The outer Seatbelt profile is the real boundary.
+test_cmd = "swift test --disable-sandbox --package-path QuotaKit"
 # verify_cmds = ["bash .tigerteam/scripts/run-tests.sh"]
 # staging = false
 # quiet_load = 8.0
@@ -24,19 +28,15 @@ max_concurrent = 4              # host capacity; reference host: 12 cores -> 4-5
 
 # Worker profiles (SPEC §3.3). Uncomment and edit for your fleet:
 #
-# [worker.grok]
-# engine = "grok"
-# max_complexity = 2
-# image = "tigerteam-agents:runecaster"
-# cpus = 3
-# memory = "4g"
-# ticket_timeout_s = 5400
-#
-# [worker.opus]
-# engine = "claude"
-# model = "opus"
-# login_auth = true
-# max_complexity = 3
+[worker.codex]
+engine = "codex"
+max_complexity = 2
+ticket_timeout_s = 3600
+
+[worker.grok]
+engine = "grok"
+max_complexity = 2
+ticket_timeout_s = 3600
 
 # [pm]
 # command = "claude"
