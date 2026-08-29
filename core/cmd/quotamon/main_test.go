@@ -38,6 +38,30 @@ func (s commandStubSource) Fetch(context.Context) (snapshot.Provider, error) {
 	return s.provider, s.err
 }
 
+// slowSource answers after sleep unless the fetch budget expires first, then
+// reports a transport timeout the way a real budget-bound endpoint would.
+// It exists to exercise the CLI's --timeout and QUOTA_MONITOR_TIMEOUT handling
+// without touching the network.
+type slowSource struct {
+	id          string
+	displayName string
+	origin      snapshot.Origin
+	sleep       time.Duration
+	provider    snapshot.Provider
+}
+
+func (s slowSource) ProviderID() string      { return s.id }
+func (s slowSource) DisplayName() string     { return s.displayName }
+func (s slowSource) Origin() snapshot.Origin { return s.origin }
+func (s slowSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
+	select {
+	case <-time.After(s.sleep):
+		return s.provider, nil
+	case <-ctx.Done():
+		return snapshot.Provider{}, source.Errorf(source.Transport, "slow to answer")
+	}
+}
+
 func TestSnapshotCommandPrintsFetchedProvidersAndUsesWindowExitStatus(t *testing.T) {
 	setupValidConfig(t)
 	now := time.Date(2026, 8, 29, 18, 59, 59, 741_925_000, time.UTC)
@@ -373,6 +397,68 @@ func TestCheckReportsAStaleTokenWithoutRefreshing(t *testing.T) {
 	}
 }
 
+func TestTimeoutFlagBoundsTheFetchStageAndCompletesEarly(t *testing.T) {
+	setupValidConfig(t)
+	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
+	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
+	configured := []hybrid.Provider{{
+		ID: "claude", DisplayName: "Claude",
+		Local: slowSource{id: "claude", displayName: "Claude", origin: snapshot.OriginLocal, sleep: time.Second, provider: provider},
+		Now:   func() time.Time { return now },
+	}}
+	started := time.Now()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runWithFactory([]string{"--timeout", "0.2", "--no-live"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
+	elapsed := time.Since(started)
+	if elapsed >= time.Second {
+		t.Fatalf("run(--timeout 0.2) took %s, want less than 1s for a cancelled fetch", elapsed)
+	}
+	if exit == 0 {
+		t.Fatalf("run(--timeout 0.2) exit = 0, want non-zero for a timed-out provider")
+	}
+	if !strings.Contains(stdout.String(), "unavailable") || !strings.Contains(stdout.String(), "slow to answer") {
+		t.Fatalf("run(--timeout 0.2) output = %q, want the provider marked unavailable with a transport timeout message", stdout.String())
+	}
+}
+
+func TestTimeoutEnvironmentVariableIsHonouredAndFlagWins(t *testing.T) {
+	setupValidConfig(t)
+	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
+	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
+	makeConfigured := func() []hybrid.Provider {
+		return []hybrid.Provider{{
+			ID: "claude", DisplayName: "Claude",
+			Local: slowSource{id: "claude", displayName: "Claude", origin: snapshot.OriginLocal, sleep: time.Second, provider: provider},
+			Now:   func() time.Time { return now },
+		}}
+	}
+
+	t.Run("env alone bounds the fetch", func(t *testing.T) {
+		t.Setenv("QUOTA_MONITOR_TIMEOUT", "0.2")
+		started := time.Now()
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		exit := runWithFactory([]string{"--no-live"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(makeConfigured()))
+		if elapsed := time.Since(started); elapsed >= time.Second {
+			t.Fatalf("run(env 0.2) took %s, want less than 1s", elapsed)
+		}
+		if exit == 0 || !strings.Contains(stdout.String(), "slow to answer") {
+			t.Fatalf("run(env 0.2) exit = %d, output = %q, want a timeout", exit, stdout.String())
+		}
+	})
+
+	t.Run("flag overrides the env", func(t *testing.T) {
+		t.Setenv("QUOTA_MONITOR_TIMEOUT", "0.2")
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		exit := runWithFactory([]string{"--timeout", "10", "--no-live"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(makeConfigured()))
+		if exit != 0 || !strings.Contains(stdout.String(), "43%") || strings.Contains(stdout.String(), "slow to answer") {
+			t.Fatalf("run(--timeout 10, env 0.2) exit = %d, output = %q, want a completed reading", exit, stdout.String())
+		}
+	})
+}
+
 func TestFreshFlagReachesDefaultSnapshotAndWaybarProviders(t *testing.T) {
 	tests := []struct {
 		name string
@@ -470,6 +556,11 @@ func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 		{name: "invalid color mode", args: []string{"--color=sometimes"}},
 		{name: "color without a mode", args: []string{"--color"}},
 		{name: "duplicate color mode", args: []string{"--color=auto", "--color=never"}},
+		{name: "non-numeric timeout", args: []string{"--timeout", "x"}},
+		{name: "zero timeout", args: []string{"--timeout", "0"}},
+		{name: "negative timeout", args: []string{"--timeout", "-1"}},
+		{name: "timeout without a value", args: []string{"--timeout"}},
+		{name: "infinite timeout", args: []string{"--timeout", "Inf"}},
 		{name: "fresh check is unsupported", args: []string{"check", "--fresh"}},
 	}
 	for _, test := range tests {

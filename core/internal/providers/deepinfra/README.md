@@ -32,7 +32,11 @@ retain the body. The encoded snapshot must never contain the address.
 QuotaMon fetches all three endpoints concurrently. Mapping (balance = the
 `remaining` figure the dashboard shows):
 
-- `remaining = −stripe_balance − recent` — `stripe_balance` is funds on
+Each payment call has a 12-second deadline so DeepInfra's normally slow
+responses can complete without consuming an unbounded refresh.
+
+- `remaining = −stripe_balance − recent`, rounded to whole cents before
+  comparing with zero — `stripe_balance` is funds on
   account **before** the not-yet-invoiced usage in `recent`; credit is debited
   only when the usage invoice is issued, so the spendable headroom subtracts
   `recent` (worked example in `PROVIDERS.md`).

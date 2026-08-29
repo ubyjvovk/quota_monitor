@@ -63,7 +63,9 @@ live refresh falls back to a current local reading and labels it as cached.
 `waybar` performs the same resolved fetch and writes one line of custom-module
 JSON. `check` bypasses the hybrid merge, probes every enabled source
 independently, and reports its window count and plan or its actionable error
-kind. All commands cap the overall operation at ten seconds. `--no-live`
+kind. The fetch stage of the table, `snapshot`/`--json`, `waybar`, and `check`
+is capped at a 15-second budget by default; use `--timeout <seconds>` or set
+`QUOTA_MONITOR_TIMEOUT` to change it (see `Fetch timeout` below). `--no-live`
 guarantees that live endpoints, credentials, and subprocesses are skipped.
 
 ## Exit codes
@@ -162,10 +164,24 @@ found provider off, run without `--yes` or edit the config file.
 the same table plus an `on`/`off` column read from the config, and exits `3`
 with the setup hint when the config file does not exist yet.
 
+## Fetch timeout
+
+Every fetching command (`table`, `snapshot`/`--json`, `waybar`, and `check`)
+runs the source queries under a shared deadline. It defaults to 15 seconds;
+the `--timeout <seconds>` flag or the `QUOTA_MONITOR_TIMEOUT` environment
+variable override it (the flag wins). Any finite positive number of seconds is
+accepted, including fractions (`--timeout 0.2`); non-numeric values, zero,
+negatives, and NaN/Inf are rejected with the usage message and exit `2`. An
+invalid environment value is ignored and the 15-second default stands. The
+stale-token pre-fetch phase keeps its own separate 25-second budget (for Kimi's
+CLI refresh) and is never affected by `--timeout`.
+
 ## Environment variables
 
 QuotaMon honours a small set of environment variables, all optional:
 
+- `QUOTA_MONITOR_TIMEOUT` — fetch budget in seconds (default `15`); any finite
+  positive number, fractions allowed. Overridden by the `--timeout` flag.
 - `QUOTA_MONITOR_DIR` — base directory for QuotaMon state. When set, it wins
   the config path (`$QUOTA_MONITOR_DIR/config.json`) and the Claude statusline
   mirror path (default `~/.quota-monitor/claude-usage.json`).
@@ -272,7 +288,11 @@ and never turns product breakdowns into additional windows.
 
 The live source reads the DeepInfra key (**`DEEPINFRA_KEY`** environment
 variable or `config.json` `deepinfra.api_key`) and fetches
-`api.deepinfra.com/payment/{config,usage,checklist}` concurrently. DeepInfra is
+`api.deepinfra.com/payment/{config,usage,checklist}` concurrently. Each request
+is capped at 12 seconds independently (DeepInfra's endpoints typically answer
+in 2–7 s but can occasionally exceed that); a slower round-trip is reported as
+a `slow to answer (>12 s)` transport error rather than the caller's overall
+fetch budget being the thing that trips. DeepInfra is
 pay-as-you-go, so a `monthly_spend` percentage window appears only when the
 account has a positive spending limit; otherwise it reports spend with no
 percentage. The prepaid balance from `/payment/checklist` is shown as the

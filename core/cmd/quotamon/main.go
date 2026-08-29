@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,13 +38,17 @@ Commands:
 Options:
   --no-live                 Skip live sources
   --fresh                   Bypass stale-token cached readings
+  --timeout <seconds>       Fetch budget in seconds; any positive number
+                            (fractional allowed). Default 15, or the
+                            QUOTA_MONITOR_TIMEOUT env var. Flag wins.
   --color=auto|always|never Colour the table usage bars (default: auto)
   --help, -h                Show this help and exit
 `
 
 const (
-	// fetchTimeout bounds the source queries themselves.
-	fetchTimeout = 10 * time.Second
+	// defaultFetchTimeout bounds the source queries themselves (15 s). It is
+	// the fallback when neither --timeout nor QUOTA_MONITOR_TIMEOUT is set.
+	defaultFetchTimeout = 15 * time.Second
 	// prefetchTimeout bounds the stale-token phase separately: a Kimi refresh
 	// launches the CLI and needs up to its own 20-second deadline, which must
 	// not consume the fetch budget.
@@ -61,14 +67,28 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 
 func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time, providers providerFactory) int {
 	args, colorMode, colorValid := parseColorArgument(args)
+	args, timeoutSeconds, timeoutSet, timeoutValid := parseTimeoutArgument(args)
 	command, liveEnabled, fresh, yes, help, valid := parseArguments(args)
 	if help {
 		fmt.Fprint(stdout, usageText)
 		return 0
 	}
-	if !valid || !colorValid {
+	if !valid || !colorValid || !timeoutValid {
 		fmt.Fprint(stderr, usageText)
 		return 2
+	}
+
+	// The fetch budget is the flag when set, else the environment variable,
+	// else the 15-second default. The flag wins because it is an explicit
+	// per-invocation choice; an invalid env value is ignored rather than fatal.
+	fetchTimeout := defaultFetchTimeout
+	switch {
+	case timeoutSet:
+		fetchTimeout = time.Duration(timeoutSeconds * float64(time.Second))
+	case os.Getenv("QUOTA_MONITOR_TIMEOUT") != "":
+		if seconds, err := strconv.ParseFloat(os.Getenv("QUOTA_MONITOR_TIMEOUT"), 64); err == nil && finitePositive(seconds) {
+			fetchTimeout = time.Duration(seconds * float64(time.Second))
+		}
 	}
 
 	// setup and providers are the only commands that do not require a config:
@@ -93,11 +113,11 @@ func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, no
 
 	switch command {
 	case "table":
-		result := fetchAll(configured, now)
+		result := fetchAll(configured, now, fetchTimeout)
 		fmt.Fprintln(stdout, renderTableWithColor(result, result.GeneratedAt.Time, tableColorEnabled(colorMode, stdout)))
 		return windowExitStatus(result)
 	case "snapshot":
-		result := fetchAll(configured, now)
+		result := fetchAll(configured, now, fetchTimeout)
 		encoded, err := result.Encode()
 		if err != nil {
 			fmt.Fprintf(stderr, "encode snapshot: %v\n", err)
@@ -106,7 +126,7 @@ func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, no
 		fmt.Fprintln(stdout, string(encoded))
 		return windowExitStatus(result)
 	case "waybar":
-		result := fetchAll(configured, now)
+		result := fetchAll(configured, now, fetchTimeout)
 		if err := json.NewEncoder(stdout).Encode(renderWaybar(result, result.GeneratedAt.Time)); err != nil {
 			fmt.Fprintf(stderr, "encode Waybar payload: %v\n", err)
 			return 1
@@ -120,6 +140,43 @@ func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, no
 	default:
 		panic("validated command was not handled")
 	}
+}
+
+// parseTimeoutArgument extracts a --timeout <seconds> flag, if any, returning
+// the cleaned arguments, the requested seconds, whether the flag was present,
+// and whether the flag was valid. The value is a separate token (--timeout 15)
+// rather than --timeout=15, matching the accepted CLI contract. Any finite
+// positive number of seconds is accepted so fractional tests (--timeout 0.2)
+// work; <= 0, non-numeric, and NaN/Inf all fail validation.
+func parseTimeoutArgument(args []string) ([]string, float64, bool, bool) {
+	filtered := make([]string, 0, len(args))
+	found := false
+	var seconds float64
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument != "--timeout" {
+			filtered = append(filtered, argument)
+			continue
+		}
+		if found || index == len(args)-1 {
+			return filtered, 0, found, false
+		}
+		value := args[index+1]
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil || !finitePositive(parsed) {
+			return filtered, 0, found, false
+		}
+		found = true
+		seconds = parsed
+		index++
+	}
+	return filtered, seconds, found, true
+}
+
+// finitePositive reports whether seconds is a real, positive number. Infinity
+// and NaN are parseable by ParseFloat but are never a usable deadline.
+func finitePositive(seconds float64) bool {
+	return !math.IsNaN(seconds) && !math.IsInf(seconds, 0) && seconds > 0
 }
 
 func parseColorArgument(args []string) ([]string, string, bool) {
@@ -239,10 +296,10 @@ func windowExitStatus(result snapshot.Snapshot) int {
 
 // fetchAll resolves every provider concurrently. The stale-token phase (cache
 // reads and, for Kimi, launching the CLI to renew its own sign-in) runs first
-// under its own 25-second budget so a refresh cannot consume the 10-second
-// fetch budget. With --no-live every PreFetch is a no-op, so the cache and
-// any refresh are skipped.
-func fetchAll(providers []hybrid.Provider, now func() time.Time) snapshot.Snapshot {
+// under its own 25-second budget so a refresh cannot consume the fetch budget
+// passed here. With --no-live every PreFetch is a no-op, so the cache and any
+// refresh are skipped.
+func fetchAll(providers []hybrid.Provider, now func() time.Time, fetchTimeout time.Duration) snapshot.Snapshot {
 	prepared := preFetchAll(providers)
 	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 	defer cancel()

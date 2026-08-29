@@ -210,8 +210,20 @@ func TestLiveSourceMapsPerCallDeadlineToSlowTransportError(t *testing.T) {
 	if !errors.As(err, &sourceError) || sourceError.Kind != source.Transport {
 		t.Fatalf("Fetch() error = %v, want Transport", err)
 	}
-	if !strings.Contains(err.Error(), "slow to answer") {
-		t.Fatalf("Fetch() message = %q, want slow-to-answer explanation", err)
+	if !strings.Contains(err.Error(), "slow to answer (>0.1 s)") {
+		t.Fatalf("Fetch() message = %q, want slow-to-answer explanation with actual cap", err)
+	}
+}
+
+func TestLiveSourceDefaultCallTimeoutIsTwelveSeconds(t *testing.T) {
+	if defaultCallTimeout != 12*time.Second {
+		t.Fatalf("defaultCallTimeout = %s, want 12s", defaultCallTimeout)
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	cancel()
+	_, err := (LiveSource{}).fetchJSON(ctx, "https://example.invalid", http.DefaultClient, "tok", "/payment/usage", defaultCallTimeout)
+	if err == nil || !strings.Contains(err.Error(), "slow to answer (>12 s)") {
+		t.Fatalf("fetchJSON() error = %q, want slow-to-answer explanation with >12 s cap", err)
 	}
 }
 
@@ -282,6 +294,11 @@ func TestStripeBalanceMappings(t *testing.T) {
 			name:        "remaining funds down to cents still report spendable headroom",
 			balance:     Balance{Known: true, Stripe: -8.0, Recent: 7.97},
 			wantCredits: true, wantBalance: "$0.03",
+		},
+		{
+			name:        "equal prepaid funds and recent usage report exactly zero",
+			balance:     Balance{Known: true, Stripe: -8.0, Recent: 8.0},
+			wantCredits: false, wantBalance: "$0.00",
 		},
 	}
 	for _, test := range tests {

@@ -7,6 +7,7 @@ package deepinfra
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"quotamon/internal/snapshot"
@@ -63,21 +64,21 @@ func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time
 		// stripe_balance is funds on account BEFORE the not-yet-invoiced usage in
 		// recent; credit is debited only when the usage invoice is issued, so the
 		// spendable headroom is -Stripe - Recent (the dashboard's "remaining").
-		remaining := -balance.Stripe - balance.Recent
+		remainingCents := math.Round((-balance.Stripe - balance.Recent) * 100)
 		switch {
-		case remaining > 0:
-			prepaid := fmt.Sprintf("$%.2f", remaining)
+		case remainingCents > 0:
+			prepaid := fmt.Sprintf("$%.2f", remainingCents/100)
 			credits.HasCredits = true
 			credits.Unlimited = false
 			credits.Balance = &prepaid
-		case remaining == 0:
+		case remainingCents == 0:
 			zero := "$0.00"
 			credits.HasCredits = false
 			credits.Unlimited = false
 			credits.Balance = &zero
 		default:
 			// A negative remaining balance is money owed to DeepInfra, not headroom.
-			owed := fmt.Sprintf("$%.2f owed", -remaining)
+			owed := fmt.Sprintf("$%.2f owed", -remainingCents/100)
 			credits.HasCredits = false
 			credits.Unlimited = false
 			credits.Balance = &owed
