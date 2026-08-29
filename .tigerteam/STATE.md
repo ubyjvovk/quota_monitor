@@ -185,3 +185,62 @@ Grok and Kimi may, like ChatGPT, expose no usage *number* at all — their CLIs
 may learn limits only from response headers on real turns. If so, the honest
 deliverable is a balance / tier line, not a percentage. Decide only after
 seeing a real response; do not ship a provider that silently reports nothing.
+
+## CORRECTION (2026-08-29, later) — the ChatGPT verdict above was WRONG
+The "ChatGPT / Codex — RESOLVED, no live endpoint is possible" section is
+superseded. The human pushed back and was right. Two live routes exist:
+
+1. **`codex app-server` (preferred, now T-0006).** The Codex CLI ships a local
+   newline-delimited JSON-RPC server with a documented
+   `account/rateLimits/read` method:
+   `codex app-server --stdio`, send `initialize` (id 1), `initialized`, then
+   `account/rateLimits/read` (id 2). Measured **0.24 s**. Returns
+   `result.rateLimits` with `primary`/`secondary`
+   (`usedPercent`, `windowDurationMins`, `resetsAt`), `credits`, `planType`,
+   plus `rateLimitResetCredits`. **No bearer token is handled by us** and there
+   is no bot-protected host in the path. Fixture committed as
+   `Fixtures/codex-app-server-ratelimits.json`.
+2. **`GET https://chatgpt.com/backend-api/wham/usage` → 200.** Works with
+   `Authorization: Bearer` + `ChatGPT-Account-Id` from `~/.codex/auth.json`.
+   Returns `rate_limit.{primary,secondary}_window`, `credits`, `plan_type`.
+
+**Where my earlier analysis went wrong:** I concluded "Cloudflare blocks every
+plain HTTP client". It does block `/backend-api/api/codex/usage` and
+`/backend-api/codex/usage` (403 + HTML challenge), but `wham/usage` answers
+200 — *the path was wrong, not the wall*. Note also that the 403 probes sent
+`originator: codex_cli_rs` and a spoofed `User-Agent`, and the 200 probe sent
+neither; the custom User-Agent is the likelier trigger. Lesson: do not
+generalise a whole host as unreachable from two 403s on adjacent paths, and
+strip unusual headers before concluding anything.
+
+What stands from T-0004: the rollout reader is still the right *local*
+fallback, and the honest "only after a Codex turn" status text is still
+correct for that path. T-0006 adds the live source above it.
+
+## Provider verdicts after the second research round
+- **Grok — SOLVED, ticketed as T-0007.**
+  `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` with
+  `Authorization: Bearer <~/.grok/auth.json token>` and
+  `x-grok-client-mode: grok-build` → 200. Gives `creditUsagePercent`, a weekly
+  `currentPeriod`, `productUsage[]` breakdown, `onDemandCap/Used`,
+  `prepaidBalance`. Fixture committed. The base host came from
+  `~/.grok/logs/unified.jsonl` after the human opened the billing view — the
+  `/v1` prefix was the missing piece; `/rest/*` and bare `/billing` are 404.
+- **Kimi — NO usable endpoint found.** `api.kimi.com/coding/v1/me` returns 200
+  but is **identity only** (user_id, nickname, phone number, user_level) — it
+  carries PII and no quota, so we should not ingest it. Probed and 404: `/usage`,
+  `/quota`, `/balance`, `/subscription`, `/plan`, `/limits`, `/me/quota`,
+  `/oauth/usage`, `/plan/usage`. The `/usage`-shaped strings in the binary are
+  bundler source paths, not routes. Kimi likely surfaces usage in-session only.
+- **DeepInfra — NO usable endpoint found.** Key read from `<root>/.env`
+  (`DEEPINFRA_KEY`). `api.deepinfra.com/v1/me` → 200 but identity/account flags
+  only, no balance. Probed and 404: `/v1/billing`, `/dash/billing`,
+  `/dash/balance`, `/dash/usage`, `/v1/credits`, `/v1/me/usage`, `/v1/account`,
+  `deepinfra.com/api/billing`. `/v1/inference/usage` exists but rejects GET
+  (405). **To unblock:** open the DeepInfra dashboard billing page with browser
+  devtools and capture the XHR URL — the same trick that cracked Grok.
+
+**Note on `<root>/.env`:** it holds `DEEPINFRA_KEY` and is deliberately masked
+from workers by `worker.sb`. If a DeepInfra provider is ever built, it must
+read the key from the **environment**, never by parsing `.env` — workers cannot
+read that file and must not learn to.
