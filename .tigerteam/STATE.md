@@ -366,3 +366,13 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
 - `ds` lane fixed: pi needed a custom provider in `~/.pi/agent/models.json`
   (`deepinfra`, `apiKey: "$DEEPINFRA_KEY"`); model id is
   `deepinfra/deepseek-ai/DeepSeek-V4-Flash-0731`.
+
+### Config + setup landed — 2026-08-29 ~22:05
+- Accepted T-0017 (hybrid keeps credits-only providers), T-0020 (zero-balance
+  line), T-0018 (config + discover + registry gate), T-0019 (setup/providers).
+- Verified by hand: no config → exit 3 + hint; waybar "run setup" payload;
+  0644 config with a key refused with the exact chmod command; interactive
+  setup transcript; `providers` table. 17 tickets done.
+- Remaining: T-0016 docs (in flight). After it: the board is drained.
+- Not ticketed / needs the user: Mac app cutover (App/ on hold); Windows;
+  history/pace in Go; AUR packaging; Kimi (no endpoint).

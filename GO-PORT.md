@@ -214,8 +214,11 @@ User-Agents, no cookies, no bot-protection workarounds.
 | Phase 1: `core/` module, snapshot contract, Claude + Codex, hybrid merge, `snapshot`/`waybar`/`check`, cross-compile | **done** 2026-08-29 (T-0008–T-0011, T-0014) | `quotamon snapshot` and `quotactl --json` agree on every percentage on the reference Mac; 62 Swift + 9 Go packages green; `make matrix` builds darwin/arm64, linux/amd64, linux/arm64 |
 | Status JSON wrinkle | resolved: v2 `{"state","message"}`; Swift decodes both, emits v2 | `snapshot-v2.json` golden fixture, tested from both languages |
 | ChatGPT live via `codex app-server` | **working** (0.9 s) — stdin must stay open until the `id: 2` reply; PROVIDERS.md corrected | T-0014 |
-| Phase 2: Grok, DeepInfra | in progress (T-0012, T-0013) | — |
-| Bare `quotamon` human table, `--json` alias | queued (T-0015) | — |
+| Phase 2: Grok, DeepInfra | **done** (T-0012, T-0013, T-0017) | all four providers live in one `quotamon` call on the reference Mac |
+| Bare `quotamon` human table, `--json` alias | **done** (T-0015, T-0020) | — |
+| Config: mandatory JSON at `~/.config/quotamon/config.json` (or `$QUOTA_MONITOR_DIR`), keys allowed with 0600 enforced, exit 3 + hint when missing | **done** (T-0018) | — |
+| `quotamon setup` (local-only discovery → per-provider Y/n → key prompt → manual add) and `quotamon providers` | **done** (T-0019) | — |
+| User-facing docs rewrite | in progress (T-0016) | — |
 | Cutover step 2: Swift fetchers frozen | in effect (AGENTS.md) | — |
 | Cutover step 3: Mac app bundles `quotamon`, Swift fetchers deleted | **not started** — `App/` is on hold pending the UI rework | — |
 | Windows, daemon mode, history/pace in Go | not started (by design) | — |
