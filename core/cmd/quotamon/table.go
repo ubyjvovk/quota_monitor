@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"quotamon/internal/format"
 	"quotamon/internal/snapshot"
@@ -59,6 +61,8 @@ func renderTableWindow(window snapshot.Window, now time.Time) string {
 	return line + "  window reset"
 }
 
+// tableCredits omits disabled credits whose balance is absent, blank, or
+// numerically zero after surrounding currency symbols and spaces are trimmed.
 func tableCredits(credits snapshot.Credits) (string, bool) {
 	if credits.Unlimited {
 		if credits.Balance != nil {
@@ -72,10 +76,22 @@ func tableCredits(credits snapshot.Credits) (string, bool) {
 		}
 		return "— remaining", true
 	}
-	if credits.Balance != nil && strings.TrimSpace(*credits.Balance) != "" {
-		return *credits.Balance + " (not enabled)", true
+	if credits.Balance == nil || disabledCreditBalanceIsEmptyOrZero(*credits.Balance) {
+		return "", false
 	}
-	return "", false
+	return *credits.Balance + " (not enabled)", true
+}
+
+func disabledCreditBalanceIsEmptyOrZero(balance string) bool {
+	trimmed := strings.TrimFunc(balance, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.Is(unicode.Sc, r)
+	})
+	if trimmed == "" {
+		return true
+	}
+
+	amount, err := strconv.ParseFloat(strings.ReplaceAll(trimmed, ",", "."), 64)
+	return err == nil && amount == 0
 }
 
 func tableOrigin(origin snapshot.Origin) string {

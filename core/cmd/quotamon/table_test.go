@@ -47,6 +47,59 @@ Grok            —      unavailable · 2h ago
 	}
 }
 
+func TestTableCreditsOmitsOnlyEmptyOrZeroDisabledBalances(t *testing.T) {
+	disabledZero := "0"
+	disabledDecimalZero := "0.00"
+	disabledCommaZero := " € 0,00 "
+	disabledNonzero := "20.00"
+	enabledZero := "0"
+
+	tests := []struct {
+		name    string
+		credits snapshot.Credits
+		want    string
+		wantOK  bool
+	}{
+		{
+			name:    "disabled zero has no line",
+			credits: snapshot.Credits{Balance: &disabledZero},
+		},
+		{
+			name:    "disabled decimal zero has no line",
+			credits: snapshot.Credits{Balance: &disabledDecimalZero},
+		},
+		{
+			name:    "disabled comma zero with currency and spaces has no line",
+			credits: snapshot.Credits{Balance: &disabledCommaZero},
+		},
+		{
+			name:    "disabled nonzero balance is labelled not enabled",
+			credits: snapshot.Credits{Balance: &disabledNonzero},
+			want:    "20.00 (not enabled)",
+			wantOK:  true,
+		},
+		{
+			name:    "disabled nil balance has no line",
+			credits: snapshot.Credits{},
+		},
+		{
+			name:    "enabled zero balance remains visible",
+			credits: snapshot.Credits{Balance: &enabledZero, Enabled: true},
+			want:    "0 remaining",
+			wantOK:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := tableCredits(test.credits)
+			if got != test.want || ok != test.wantOK {
+				t.Fatalf("tableCredits() = %q, %v; want %q, %v", got, ok, test.want, test.wantOK)
+			}
+		})
+	}
+}
+
 func tableTime(value time.Time) *snapshot.Time {
 	return &snapshot.Time{Time: value}
 }
