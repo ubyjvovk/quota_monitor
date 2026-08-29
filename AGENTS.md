@@ -44,6 +44,17 @@ menu-bar app and widget are ON HOLD.
   field / `*http.Client` with a working default; tests inject `httptest` or a
   stub and never touch `$HOME`, the Keychain, the network, or a subprocess.
 - Table-driven tests, `t.Run` per case, names that read as sentences.
+- Providers live in `internal/providers/<id>/` with a `README.md` each; the
+  registry (`internal/registry/`) fixes display order. Adding a provider =
+  new package + one registry line + a short name in `cmd/quotamon/waybar.go`.
+- Hand-check any provider change with `cd core && go run ./cmd/quotamon check`
+  (probes every source independently) and compare against
+  `swift run --disable-sandbox --package-path QuotaKit quotactl --json` — the
+  Swift fetchers are the frozen reference until the cutover.
+- Docs map: `PROVIDERS.md` = the provider contract (endpoints, credentials,
+  gotchas — update it when you learn something new about an endpoint);
+  `GO-PORT.md` = design record + status table; `core/README.md` = user-facing
+  usage; this file = how to work here.
 
 ## Conventions
 - Swift 6 with strict concurrency. Anything crossing an `async` boundary is
