@@ -93,6 +93,8 @@ func providerShortName(provider snapshot.Provider) string {
 		return "CL"
 	case "codex":
 		return "GPT"
+	case "grok":
+		return "GK"
 	default:
 		return provider.DisplayName
 	}
