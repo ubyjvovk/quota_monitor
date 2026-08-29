@@ -110,8 +110,15 @@ printf '%s\n' \
 ```
 
 Read stdout line by line and select the object whose `id` is `2`; skip the
-`id: 1` reply and any `remoteControl/status/changed` notifications. Close
-stdin after writing, or the server waits and you get an EOF parse error.
+`id: 1` reply and any `remoteControl/status/changed` notifications.
+
+**Keep stdin OPEN until the `id: 2` line has arrived.** The server treats
+stdin EOF as "client gone" and exits *before* answering; with an immediate
+close you get only the `id: 1` reply and the notification (verified
+2026-08-29 — an earlier revision of this file said the opposite, because the
+probe that established the recipe happened to `sleep 8` before closing). Read
+stdout until the `id: 2` object, then close stdin and reap the process; bound
+the whole exchange with a timeout (~10 s).
 
 Fixture: `codex-app-server-ratelimits.json`. Payload at `result.rateLimits`:
 
