@@ -340,12 +340,30 @@ GET https://api.deepinfra.com/payment/usage?from=current
 Both verified **200**. Fixture: `deepinfra-usage.json` (trimmed to two items;
 the live response lists every model the account used).
 
+**Balance (found 2026-08-29):**
+
+```
+GET https://api.deepinfra.com/payment/checklist
+→ {"stripe_balance": -18.0, "recent": 7.97, "limit": null, "suspended": false,
+   "overdue_invoices": 0.0, "billing_type": "balance", "topup": false, …}
+```
+
+Verified **200**. `stripe_balance` is USD; **negative = funds ready to spend,
+positive = money owed** (from the OpenAPI description). `recent` is recent
+spend in USD, `limit` the spending limit (null = none), `suspended` /
+`suspend_reason` / `overdue_invoices` are actionable status. Fixture:
+`deepinfra-checklist.json` (money fields only).
+
+**PII warning:** the same response carries `billing_address_info` (name,
+street address) and `payment_method_info`. Take exactly the fields above and
+nothing else; never log or persist the raw body.
+
 `GET https://api.deepinfra.com/v1/me` also returns 200 but is identity and
 account flags only — no balance. 404 on `/v1/billing`, `/dash/billing`,
 `/dash/balance`, `/dash/usage`, `/v1/credits`, `/v1/me/usage`, `/v1/account`,
 `deepinfra.com/api/billing`. `/v1/inference/usage` exists but rejects GET.
 
-**DeepInfra is pay-as-you-go: there is no quota and no prepaid balance.** The
+**DeepInfra is pay-as-you-go: there is no quota, but there IS a prepaid balance (see above).** The
 honest readouts are month-to-date spend (`total_cost / 100` USD) and, when
 `limit > 0`, usage against that limit. On this account `limit` is `-1`, so
 there is no percentage to show — only "$7.75 this month". Decide deliberately
