@@ -2,8 +2,8 @@ package kimi
 
 import (
 	"context"
-	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -25,13 +25,21 @@ type CLIRefresher struct {
 	Deadline time.Duration
 	// Store is re-read after the process to verify that the CLI renewed its token.
 	Store CredentialStore
-	// Run launches argv with stdin and defaults to an os/exec command.
-	Run func(ctx context.Context, argv []string, stdin io.Reader) error
+	// Run executes the prepared command and defaults to (*exec.Cmd).Run. The
+	// command arrives with its directory, environment, and stdin already set.
+	Run func(cmd *exec.Cmd) error
 }
 
 // Refresh briefly launches the Kimi TUI and succeeds only when the CLI-owned
 // credential file contains a future expiry afterward. The process exit status
-// is deliberately ignored because /exit does not reliably terminate every CLI release.
+// is deliberately ignored because /exit does not reliably terminate every CLI
+// release.
+//
+// The CLI runs from the user's home directory: launched from an untrusted
+// working directory the TUI stops at its "Trust this folder?" prompt and
+// never reaches the token refresh it performs on startup. The launch also
+// runs on its own deadline detached from the caller's context, so a caller's
+// cancel cannot kill the CLI in the middle of rewriting its credential file.
 func (r CLIRefresher) Refresh(ctx context.Context) error {
 	binary := r.Binary
 	if binary == "" {
@@ -59,9 +67,18 @@ func (r CLIRefresher) Refresh(ctx context.Context) error {
 		run = runCommand
 	}
 
-	runContext, cancel := context.WithTimeout(ctx, deadline)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return source.Errorf(source.NotConfigured, "Kimi CLI auto-refresh needs the home directory — open `kimi` manually (%v)", err)
+	}
+
+	runContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), deadline)
 	defer cancel()
-	runErr := run(runContext, argv, &refreshInput{startup: startup, data: []byte("/exit\r")})
+	command := exec.CommandContext(runContext, argv[0], argv[1:]...)
+	command.Dir = home
+	command.Env = refreshEnvironment()
+	command.Stdin = &refreshInput{startup: startup, data: []byte("/exit\r")}
+	runErr := run(command)
 
 	credentials, credentialErr := r.Store.Load()
 	if credentialErr == nil && credentials.ExpiresAt != nil && credentials.ExpiresAt.After(time.Now()) {
@@ -87,13 +104,18 @@ func refreshArgv(binary string) ([]string, error) {
 	}
 }
 
-func runCommand(ctx context.Context, argv []string, stdin io.Reader) error {
-	if len(argv) == 0 {
-		return fmt.Errorf("empty Kimi CLI command")
+// refreshEnvironment hands the TUI a terminal type when the caller (a Waybar
+// module or a launchd job) has none; without TERM the CLI cannot draw.
+func refreshEnvironment() []string {
+	environment := os.Environ()
+	if _, ok := os.LookupEnv("TERM"); !ok {
+		environment = append(environment, "TERM=xterm-256color")
 	}
-	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	command.Stdin = stdin
-	return command.Run()
+	return environment
+}
+
+func runCommand(cmd *exec.Cmd) error {
+	return cmd.Run()
 }
 
 type refreshInput struct {

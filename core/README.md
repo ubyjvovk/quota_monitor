@@ -184,9 +184,11 @@ credential is stale by its own timestamp, QuotaMon reuses that reading without
 network access only while it is younger than the provider's shortest quota
 window and at least one recorded window has not reset. Pass `--fresh` to the
 default command, `snapshot`, or `waybar` to bypass this cache. For Kimi, a
-needed refresh briefly launches the Kimi CLI in a pseudo-terminal so Kimi can
-rotate and save its own credentials; QuotaMon never rotates Kimi tokens itself
-or calls the token endpoint directly.
+needed refresh briefly launches the Kimi CLI in a pseudo-terminal — from the
+home directory, because the TUI refuses untrusted folders — so Kimi can
+rotate and save its own credentials; the launch runs ahead of the fetch on its
+own 25-second budget. QuotaMon never rotates Kimi tokens itself or calls the
+token endpoint directly.
 
 ## Waybar
 

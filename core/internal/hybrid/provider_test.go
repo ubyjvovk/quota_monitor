@@ -323,6 +323,73 @@ func TestFreshTokenIgnoresCacheCallsLiveAndSavesTheResult(t *testing.T) {
 	}
 }
 
+func TestPreFetchRefreshesOnceBeforeASeparateFetch(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	store := cache.Store{Dir: t.TempDir()}
+	cached := providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 18)
+	cached.ObservedAt = snapshot.Time{Time: now.Add(-6 * time.Hour)}
+	if err := store.Save(cached); err != nil {
+		t.Fatal(err)
+	}
+	var liveCalls atomic.Int32
+	var refreshCalls atomic.Int32
+
+	provider := hybrid.Provider{
+		ID: "test", DisplayName: "Test",
+		Live:           stubSource{origin: snapshot.OriginLive, provider: providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 43), calls: &liveCalls},
+		LiveEnabled:    true,
+		Cache:          &store,
+		ShortestWindow: 5 * time.Hour,
+		TokenStale:     func(time.Time) bool { return true },
+		Refresh: func(context.Context) error {
+			refreshCalls.Add(1)
+			return nil
+		},
+		Now: func() time.Time { return now },
+	}
+
+	prepared := provider.PreFetch(context.Background())
+	if liveCalls.Load() != 0 {
+		t.Fatalf("PreFetch() queried live %d times, want 0 — it must not touch sources", liveCalls.Load())
+	}
+	got := prepared.Fetch(context.Background())
+
+	if got.Origin != snapshot.OriginLive || got.Windows[0].UsedPercent != 43 {
+		t.Fatalf("Prepared.Fetch() = origin/usage %q/%v, want live/43", got.Origin, got.Windows[0].UsedPercent)
+	}
+	if refreshCalls.Load() != 1 || liveCalls.Load() != 1 {
+		t.Fatalf("refresh/live calls = %d/%d, want 1/1", refreshCalls.Load(), liveCalls.Load())
+	}
+}
+
+func TestPreFetchSkipsTheCacheAndRefreshWhenLiveIsDisabled(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	store := cache.Store{Dir: t.TempDir()}
+	if err := store.Save(providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 18)); err != nil {
+		t.Fatal(err)
+	}
+	var refreshCalls atomic.Int32
+
+	got := (hybrid.Provider{
+		ID: "test", DisplayName: "Test",
+		Local:          localSource(providerWithWindow(snapshot.OriginLocal, now.Add(time.Hour), 18)),
+		Live:           liveSource(providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 43)),
+		LiveEnabled:    false,
+		Cache:          &store,
+		ShortestWindow: 5 * time.Hour,
+		TokenStale:     func(time.Time) bool { return true },
+		Refresh: func(context.Context) error {
+			refreshCalls.Add(1)
+			return nil
+		},
+		Now: func() time.Time { return now },
+	}).Fetch(context.Background())
+
+	if refreshCalls.Load() != 0 || got.Origin != snapshot.OriginLocal || got.Windows[0].UsedPercent != 18 {
+		t.Fatalf("refresh calls = %d, Fetch() = %#v, want no refresh and the local reading", refreshCalls.Load(), got)
+	}
+}
+
 func providerWithWindow(origin snapshot.Origin, resetsAt time.Time, percent float64) snapshot.Provider {
 	return snapshot.Provider{
 		ID: "test", DisplayName: "Test",

@@ -344,6 +344,35 @@ func TestCheckReportsStaleKimiTokenAndCachedReadingWithoutProbingLive(t *testing
 	}
 }
 
+func TestCheckReportsAStaleTokenWithoutRefreshing(t *testing.T) {
+	setupValidConfig(t)
+	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
+	var refreshCalls atomic.Int32
+	configured := []hybrid.Provider{{
+		ID: "test", DisplayName: "Test",
+		Live:        commandStubSource{id: "test", displayName: "Test", origin: snapshot.OriginLive},
+		LiveEnabled: true,
+		TokenStale:  func(time.Time) bool { return true },
+		Refresh: func(context.Context) error {
+			refreshCalls.Add(1)
+			return nil
+		},
+		Now: func() time.Time { return now },
+	}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runWithFactory([]string{"check"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
+	if exit != 0 || stderr.Len() != 0 {
+		t.Fatalf("run(check) exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if refreshCalls.Load() != 0 {
+		t.Fatalf("check triggered %d refreshes, want 0 — check only reports token state", refreshCalls.Load())
+	}
+	if !strings.Contains(stdout.String(), "Test live: token stale") {
+		t.Fatalf("check output = %q, want a token-stale line", stdout.String())
+	}
+}
+
 func TestFreshFlagReachesDefaultSnapshotAndWaybarProviders(t *testing.T) {
 	tests := []struct {
 		name string

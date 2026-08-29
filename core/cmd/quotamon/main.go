@@ -40,7 +40,14 @@ Options:
   --help, -h                Show this help and exit
 `
 
-const overallTimeout = 25 * time.Second
+const (
+	// fetchTimeout bounds the source queries themselves.
+	fetchTimeout = 10 * time.Second
+	// prefetchTimeout bounds the stale-token phase separately: a Kimi refresh
+	// launches the CLI and needs up to its own 20-second deadline, which must
+	// not consume the fetch budget.
+	prefetchTimeout = 25 * time.Second
+)
 
 type providerFactory func(registry.Options) []hybrid.Provider
 
@@ -83,16 +90,14 @@ func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, no
 	}
 
 	configured := providers(registry.Options{LiveEnabled: func(string) bool { return liveEnabled }, Config: cfg, Fresh: fresh})
-	ctx, cancel := context.WithTimeout(context.Background(), overallTimeout)
-	defer cancel()
 
 	switch command {
 	case "table":
-		result := fetchAll(ctx, configured, now)
+		result := fetchAll(configured, now)
 		fmt.Fprintln(stdout, renderTableWithColor(result, result.GeneratedAt.Time, tableColorEnabled(colorMode, stdout)))
 		return windowExitStatus(result)
 	case "snapshot":
-		result := fetchAll(ctx, configured, now)
+		result := fetchAll(configured, now)
 		encoded, err := result.Encode()
 		if err != nil {
 			fmt.Fprintf(stderr, "encode snapshot: %v\n", err)
@@ -101,13 +106,15 @@ func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, no
 		fmt.Fprintln(stdout, string(encoded))
 		return windowExitStatus(result)
 	case "waybar":
-		result := fetchAll(ctx, configured, now)
+		result := fetchAll(configured, now)
 		if err := json.NewEncoder(stdout).Encode(renderWaybar(result, result.GeneratedAt.Time)); err != nil {
 			fmt.Fprintf(stderr, "encode Waybar payload: %v\n", err)
 			return 1
 		}
 		return 0
 	case "check":
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
 		writeDiagnostics(stdout, probeAll(ctx, configured, now()))
 		return 0
 	default:
@@ -230,14 +237,22 @@ func windowExitStatus(result snapshot.Snapshot) int {
 	return 1
 }
 
-func fetchAll(ctx context.Context, providers []hybrid.Provider, now func() time.Time) snapshot.Snapshot {
-	resolved := make([]snapshot.Provider, len(providers))
+// fetchAll resolves every provider concurrently. The stale-token phase (cache
+// reads and, for Kimi, launching the CLI to renew its own sign-in) runs first
+// under its own 25-second budget so a refresh cannot consume the 10-second
+// fetch budget. With --no-live every PreFetch is a no-op, so the cache and
+// any refresh are skipped.
+func fetchAll(providers []hybrid.Provider, now func() time.Time) snapshot.Snapshot {
+	prepared := preFetchAll(providers)
+	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+	defer cancel()
+	resolved := make([]snapshot.Provider, len(prepared))
 	var group sync.WaitGroup
-	for index := range providers {
+	for index := range prepared {
 		group.Add(1)
 		go func(index int) {
 			defer group.Done()
-			resolved[index] = providers[index].Fetch(ctx)
+			resolved[index] = prepared[index].Fetch(ctx)
 		}(index)
 	}
 	group.Wait()
@@ -245,6 +260,22 @@ func fetchAll(ctx context.Context, providers []hybrid.Provider, now func() time.
 		Providers:   resolved,
 		GeneratedAt: snapshot.Time{Time: now()},
 	}
+}
+
+func preFetchAll(providers []hybrid.Provider) []hybrid.Prepared {
+	ctx, cancel := context.WithTimeout(context.Background(), prefetchTimeout)
+	defer cancel()
+	prepared := make([]hybrid.Prepared, len(providers))
+	var group sync.WaitGroup
+	for index := range providers {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+			prepared[index] = providers[index].PreFetch(ctx)
+		}(index)
+	}
+	group.Wait()
+	return prepared
 }
 
 type diagnosticProbe struct {

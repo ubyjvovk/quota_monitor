@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ func TestCLIRefresherSucceedsWhenTheCLIWritesAFutureExpiry(t *testing.T) {
 		Startup:  time.Nanosecond,
 		Deadline: time.Second,
 		Store:    CredentialStore{Path: path},
-		Run: func(_ context.Context, _ []string, _ io.Reader) error {
+		Run: func(*exec.Cmd) error {
 			if err := os.WriteFile(path, credentialJSON(time.Now().Add(time.Hour)), 0o600); err != nil {
 				return err
 			}
@@ -39,7 +40,7 @@ func TestCLIRefresherFailsWhenTheCredentialStaysStale(t *testing.T) {
 		Startup:  time.Nanosecond,
 		Deadline: time.Second,
 		Store:    CredentialStore{Path: staleCredentialFile(t)},
-		Run:      func(context.Context, []string, io.Reader) error { return nil },
+		Run:      func(*exec.Cmd) error { return nil },
 	}
 
 	err := refresher.Refresh(context.Background())
@@ -67,13 +68,13 @@ func TestCLIRefresherSendsExitAfterTheStartupDelay(t *testing.T) {
 		Startup:  startup,
 		Deadline: 3 * time.Second,
 		Store:    CredentialStore{Path: path},
-		Run: func(_ context.Context, _ []string, stdin io.Reader) error {
+		Run: func(cmd *exec.Cmd) error {
 			started := time.Now()
 			first := make([]byte, len("/exit\r"))
-			count, err := stdin.Read(first)
+			count, err := cmd.Stdin.Read(first)
 			firstReadAfter = time.Since(started)
 			input = append(input, first[:count]...)
-			rest, readErr := io.ReadAll(stdin)
+			rest, readErr := io.ReadAll(cmd.Stdin)
 			input = append(input, rest...)
 			if writeErr := os.WriteFile(path, credentialJSON(time.Now().Add(time.Hour)), 0o600); writeErr != nil {
 				return writeErr
@@ -93,6 +94,51 @@ func TestCLIRefresherSendsExitAfterTheStartupDelay(t *testing.T) {
 	}
 	if firstReadAfter < startup {
 		t.Fatalf("stdin arrived after %s, before startup delay %s", firstReadAfter, startup)
+	}
+}
+
+func TestCLIRefresherRunsFromHomeAndSetsTERMWhenUnset(t *testing.T) {
+	original, had := os.LookupEnv("TERM")
+	if err := os.Unsetenv("TERM"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv("TERM", original)
+		}
+	})
+
+	path := staleCredentialFile(t)
+	var command *exec.Cmd
+	refresher := CLIRefresher{
+		Binary:   "kimi",
+		Startup:  time.Nanosecond,
+		Deadline: time.Second,
+		Store:    CredentialStore{Path: path},
+		Run: func(cmd *exec.Cmd) error {
+			command = cmd
+			return os.WriteFile(path, credentialJSON(time.Now().Add(time.Hour)), 0o600)
+		},
+	}
+
+	if err := refresher.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Dir != home {
+		t.Fatalf("command.Dir = %q, want the home directory %q (the TUI refuses untrusted folders)", command.Dir, home)
+	}
+	term := ""
+	for _, entry := range command.Env {
+		if strings.HasPrefix(entry, "TERM=") {
+			term = strings.TrimPrefix(entry, "TERM=")
+		}
+	}
+	if term != "xterm-256color" {
+		t.Fatalf("command.Env TERM = %q, want xterm-256color when unset", term)
 	}
 }
 

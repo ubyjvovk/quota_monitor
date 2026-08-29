@@ -45,32 +45,70 @@ type outcome struct {
 	attempted bool
 }
 
-// Fetch uses a current stale-token cache when policy permits, otherwise runs
-// the enabled sources concurrently and prefers a usable live reading.
-func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
+// Prepared is a Provider whose stale-token policy has already run: PreFetch
+// consulted the cache and attempted any credential refresh, so Fetch only
+// queries the sources. Splitting the phases lets callers give the (possibly
+// process-launching) refresh its own budget instead of the fetch timeout.
+type Prepared struct {
+	provider       Provider
+	asOf           time.Time
+	cachedOutcome  outcome
+	refreshMessage string
+	served         snapshot.Provider
+	servedReady    bool
+}
+
+// PreFetch resolves the stale-token policy without querying any source: a
+// young cache reading with a current window short-circuits the fetch entirely;
+// otherwise a stale token triggers the provider's own refresh. It is a no-op
+// when live sources are disabled, so --no-live never touches the cache or
+// launches a refresh.
+func (p Provider) PreFetch(ctx context.Context) Prepared {
 	now := p.Now
 	if now == nil {
 		now = time.Now
 	}
 	asOf := now()
+	prepared := Prepared{provider: p, asOf: asOf}
 
 	stale := p.LiveEnabled && p.Live != nil && p.TokenStale != nil && p.TokenStale(asOf)
-	var cachedOutcome outcome
-	if stale && !p.Fresh && p.Cache != nil {
-		if provider, found := p.Cache.Load(p.ID); found {
-			cachedOutcome = outcome{provider: provider, attempted: true}
-			if asOf.Sub(provider.ObservedAt.Time) < p.ShortestWindow && hasCurrentWindow(provider, asOf) {
-				return cachedReading(provider, snapshot.OK())
+	if !stale {
+		return prepared
+	}
+	if !p.Fresh && p.Cache != nil {
+		if cached, found := p.Cache.Load(p.ID); found {
+			prepared.cachedOutcome = outcome{provider: cached, attempted: true}
+			if asOf.Sub(cached.ObservedAt.Time) < p.ShortestWindow && hasCurrentWindow(cached, asOf) {
+				prepared.served = cachedReading(cached, snapshot.OK())
+				prepared.servedReady = true
+				return prepared
 			}
 		}
 	}
-
-	refreshMessage := ""
-	if stale && p.Refresh != nil {
+	if p.Refresh != nil {
 		if err := p.Refresh(ctx); err != nil {
-			refreshMessage = fmt.Sprintf("%s sign-in is stale — open `kimi` to refresh it (auto-refresh failed: %v)", p.DisplayName, err)
+			prepared.refreshMessage = fmt.Sprintf("%s sign-in is stale — open `kimi` to refresh it (auto-refresh failed: %v)", p.DisplayName, err)
 		}
 	}
+	return prepared
+}
+
+// Fetch uses a current stale-token cache when policy permits, otherwise runs
+// the enabled sources concurrently and prefers a usable live reading. It is
+// PreFetch and Prepared.Fetch in one step, for callers that do not separate
+// the refresh budget from the fetch budget.
+func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
+	return p.PreFetch(ctx).Fetch(ctx)
+}
+
+// Fetch runs the enabled sources concurrently and prefers a usable live
+// reading, falling back to the local and then the cached reading.
+func (prepared Prepared) Fetch(ctx context.Context) snapshot.Provider {
+	if prepared.servedReady {
+		return prepared.served
+	}
+	p := prepared.provider
+	asOf := prepared.asOf
 
 	var liveOutcome outcome
 	var localOutcome outcome
@@ -100,15 +138,15 @@ func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
 		return liveOutcome.provider
 	}
 
-	if provider, found := fallbackReading(localOutcome, asOf, refreshMessage, liveOutcome.err, false); found {
+	if provider, found := fallbackReading(localOutcome, asOf, prepared.refreshMessage, liveOutcome.err, false); found {
 		return provider
 	}
-	if provider, found := fallbackReading(cachedOutcome, asOf, refreshMessage, liveOutcome.err, true); found {
+	if provider, found := fallbackReading(prepared.cachedOutcome, asOf, prepared.refreshMessage, liveOutcome.err, true); found {
 		return provider
 	}
 
-	if refreshMessage != "" {
-		return snapshot.Unavailable(p.ID, p.DisplayName, snapshot.NeedsSetup(refreshMessage), asOf)
+	if prepared.refreshMessage != "" {
+		return snapshot.Unavailable(p.ID, p.DisplayName, snapshot.NeedsSetup(prepared.refreshMessage), asOf)
 	}
 
 	message := mostActionableMessage(localOutcome, liveOutcome)
