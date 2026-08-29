@@ -117,3 +117,65 @@ profile's allowed tree, so it dies with `ModuleNotFoundError`. Workers depend
 entirely on the supervisor's injected `TIGERTEAM_TEST_CMD`. If a worker ever
 reports the var missing again, restart the supervisor first — do not widen the
 sandbox to another repo.
+
+## Provider research (PM, 2026-08-29) — do not redo this by hand
+Established by direct probing with the user's real credentials. Endpoints and
+verdicts, so no future PM or worker repeats the work.
+
+### ChatGPT / Codex — RESOLVED, no live endpoint is possible
+- `https://chatgpt.com/backend-api/api/codex/usage` is the **correct** path (it
+  appears verbatim in the Codex binary), but the host is behind **Cloudflare bot
+  protection**: any plain HTTP client gets **403 + an HTML challenge**. The
+  "404" we used to display was that wall.
+- Codex never calls a usage endpoint. It reads limits from **response headers**
+  (`x-codex-active-limit`) during real API turns and writes the resulting
+  `rate_limits` into session rollouts.
+- Therefore `CodexLocalSource` is the *only* source of ChatGPT quota, accurate
+  as of the last Codex turn. T-0004 made the live source opt-in behind
+  `QUOTA_MONITOR_CODEX_USAGE_URL` and fixed the misleading status text.
+- **Policy: do not attempt to bypass the bot protection** (no browser UA, no
+  cookies). Matches the standing comment in `ClaudeSources.swift`.
+- Token validity is not the issue: `~/.codex/auth.json` held a token valid to
+  2026-09-02 throughout.
+
+### Grok / xAI — BLOCKED on one unknown base URL
+- Auth: OIDC token at `~/.grok/auth.json`, under a
+  `https://auth.x.ai::<client-id>` key, field `key` (a JWT, ~6h lifetime,
+  carries a `tier` claim). Refresh token alongside it.
+- `GET https://api.x.ai/v1/me` → 200 but **identity only** (user_id, team_id,
+  zdr_status). No quota. `/v1/usage`, `/v1/credits`, `/v1/rate-limits` → 404.
+- `GET https://grok.com/rest/subscriptions` → 200, but it is **Stripe
+  subscription history** (tier, status, invoice/price ids). No usage numbers,
+  and it carries billing identifiers we should not ingest.
+- The binary contains the real target: **`/billing?format=credits`**, sent with
+  `Bearer` + header `x-grok-client-mode`, returning
+  `creditUsagePercent`, `monthlyLimit`, `onDemandCap`, `onDemandUsed`,
+  `prepaidBalance`, `includedUsed`, `totalUsed`, `subscription_tier`,
+  `billingPeriodStart`. Error strings say it "requires auth with grok.com".
+- **The base URL is assembled at runtime and could not be determined.** Ruled
+  out: `grok.com/rest/billing`, `/rest/billing/credits`,
+  `/rest/app-chat/billing`, `/rest/user/billing`, `/rest/payments/billing`,
+  `grok.com/api/billing`, `code.grok.com/billing`, `api.x.ai/billing`.
+- **To unblock:** have the human open the billing/credits view in the Grok TUI
+  once; the request URL then lands in `~/.grok/logs/unified.jsonl`, which is
+  greppable for `billing`.
+
+### Kimi — BLOCKED on an expired token
+- Base `https://api.kimi.com/coding/v1` (from `~/.kimi-code/config.toml`).
+- Credentials at `~/.kimi-code/credentials/kimi-code.json`
+  (`access_token`, `refresh_token`, `expires_at`, 900s lifetime).
+- `GET /coding/v1/me` → **401** (route exists); `/usage`, `/quota`,
+  `/users/me/balance` → 404. The stored token was ~30h expired at probe time.
+- **To unblock:** run `kimi` once to refresh, then re-probe `/coding/v1/me` and
+  capture the response shape as a fixture.
+
+### DeepInfra — BLOCKED, no credential
+- `DEEPINFRA_KEY` is not present in the PM environment and no key file was
+  found. Nothing can be verified. **Ask the human where the tool should read it
+  from** before writing a ticket.
+
+### Open design question for all three
+Grok and Kimi may, like ChatGPT, expose no usage *number* at all — their CLIs
+may learn limits only from response headers on real turns. If so, the honest
+deliverable is a balance / tier line, not a percentage. Decide only after
+seeing a real response; do not ship a provider that silently reports nothing.
