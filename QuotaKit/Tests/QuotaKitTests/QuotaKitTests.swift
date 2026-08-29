@@ -24,7 +24,61 @@ private func makeCodexHome() throws -> URL {
     return home
 }
 
+private func makeCodexHome(observedAt: Date, resetsAt: Date) throws -> URL {
+    let home = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("codex-\(UUID().uuidString)")
+    let day = home.appendingPathComponent("sessions/2026/08/29")
+    try FileManager.default.createDirectory(at: day, withIntermediateDirectories: true)
+
+    let rollout = """
+    {"timestamp":\(observedAt.timeIntervalSince1970),"payload":{"rate_limits":{"limit_id":"codex",\
+    "primary":{"used_percent":14.0,"window_minutes":300,"resets_at":\(resetsAt.timeIntervalSince1970)},\
+    "secondary":{"used_percent":18.0,"window_minutes":10080,"resets_at":\(resetsAt.timeIntervalSince1970)}}}}
+    """
+    try Data(rollout.utf8).write(
+        to: day.appendingPathComponent("rollout-2026-08-29T12-00-00-test.jsonl")
+    )
+    return home
+}
+
 // MARK: - Codex local
+
+@Suite(.serialized)
+struct CodexLiveConfigurationTests {
+    @Test func liveSourceExistsOnlyWhenAReachableEndpointIsConfigured() {
+        let key = "QUOTA_MONITOR_CODEX_USAGE_URL"
+        let original = ProcessInfo.processInfo.environment[key]
+        defer {
+            if let original {
+                setenv(key, original, 1)
+            } else {
+                unsetenv(key)
+            }
+        }
+
+        unsetenv(key)
+        #expect(Codex.liveSourceIfConfigured == nil)
+
+        setenv(key, "https://example.test/codex/usage", 1)
+        #expect(Codex.liveSourceIfConfigured != nil)
+    }
+
+    @Test func providerCatalogLeavesCodexLiveSourceUnwiredInACleanEnvironment() throws {
+        let key = "QUOTA_MONITOR_CODEX_USAGE_URL"
+        let original = ProcessInfo.processInfo.environment[key]
+        defer {
+            if let original {
+                setenv(key, original, 1)
+            } else {
+                unsetenv(key)
+            }
+        }
+
+        unsetenv(key)
+        let codex = try #require(ProviderCatalog.all().first { $0.providerID == Codex.providerID })
+        #expect(codex.live == nil)
+    }
+}
 
 @Test func codexLocalSourceReadsTheNewestRateLimitRecord() async throws {
     let home = try makeCodexHome()
@@ -97,6 +151,35 @@ private func makeCodexHome() throws -> URL {
     #expect(snapshot.windows.count == 1)
     #expect(snapshot.credits == nil)
     #expect(snapshot.plan == "plus")
+}
+
+@Test func codexLocalSourceExplainsWhenEveryRolloutWindowHasReset() async throws {
+    let now = Date()
+    let home = try makeCodexHome(
+        observedAt: now.addingTimeInterval(-15 * 86_400),
+        resetsAt: now.addingTimeInterval(-3 * 86_400)
+    )
+    defer { try? FileManager.default.removeItem(at: home) }
+
+    let snapshot = try await CodexLocalSource(home: home).fetch()
+    let message = snapshot.status.message ?? ""
+
+    #expect(message.contains("only after a Codex turn"))
+    #expect(!message.contains("404"))
+    #expect(!message.contains("failed"))
+}
+
+@Test func codexLocalSourceLeavesFreshRolloutStatusClear() async throws {
+    let now = Date()
+    let home = try makeCodexHome(
+        observedAt: now.addingTimeInterval(-60),
+        resetsAt: now.addingTimeInterval(3 * 86_400)
+    )
+    defer { try? FileManager.default.removeItem(at: home) }
+
+    let snapshot = try await CodexLocalSource(home: home).fetch()
+
+    #expect(snapshot.status.message == nil)
 }
 
 // MARK: - Claude local
