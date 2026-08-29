@@ -262,9 +262,16 @@ before any network call). The TUI also sends `X-Msh-Platform` /
 `X-Msh-Version` / `X-Msh-Device-Id` headers; the exchange succeeded without
 them, so send only an honest `User-Agent`.
 
-**Policy:** refresh only when a reading is actually needed — a stale token
-means the CLI has not run, so nothing was spent and the last reading is
-still true until a window resets. See `core/` caching rules.
+**Policy (user decision 2026-08-29): quotamon does NOT refresh Kimi tokens
+and does NOT run the Kimi CLI.** Rotating the refresh token from outside the
+CLI is a liability the user declined. `kimi -p ""` refuses the empty prompt
+before any network call, and `kimi -p "/usage"` is treated as a chat prompt
+— it made three `chat/completions` calls (spent tokens) — so print mode is
+out. Instead: a stale token means the CLI has not run, so nothing was spent
+and the last reading is still true until a window resets → reuse the cached
+reading; when even that is older than the shortest window, say "Kimi reading
+is <age> old — open `kimi` to refresh its sign-in" (the TUI refreshes on
+launch, no spend). The refresh contract above is recorded for reference only.
 
 **Endpoint.**
 
