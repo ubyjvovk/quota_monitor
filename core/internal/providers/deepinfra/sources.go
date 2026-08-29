@@ -19,7 +19,7 @@ import (
 // design, NOT under /v1 — see PROVIDERS.md.
 const defaultBaseURL = "https://api.deepinfra.com"
 
-const defaultCallTimeout = 8 * time.Second
+const defaultCallTimeout = 12 * time.Second
 
 // keyEnv is the environment fallback for the DeepInfra API key. The registry
 // injects a config-backed key first and never parses the repo's masked .env.
@@ -31,7 +31,7 @@ type LiveSource struct {
 	BaseURL string
 	// Client performs the HTTP requests and defaults to a client with a 15-second timeout.
 	Client *http.Client
-	// CallTimeout limits each payment API request independently and defaults to 8 seconds.
+	// CallTimeout limits each payment API request independently and defaults to 12 seconds.
 	CallTimeout time.Duration
 	// Key returns the DeepInfra API key and defaults to reading DEEPINFRA_KEY from the environment.
 	Key func() string
@@ -83,7 +83,7 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	fetch := func(path string, output chan<- result) {
 		callContext, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
-		value, err := s.fetchJSON(callContext, baseURL, client, key, path)
+		value, err := s.fetchJSON(callContext, baseURL, client, key, path, callTimeout)
 		output <- result{value: value, err: err}
 	}
 	go fetch("/payment/config", configResult)
@@ -207,7 +207,7 @@ func isUnauthorized(err error) bool {
 }
 
 // fetchJSON performs one Authenticated GET and returns the decoded JSON body.
-func (s LiveSource) fetchJSON(ctx context.Context, baseURL string, client *http.Client, key, path string) (any, error) {
+func (s LiveSource) fetchJSON(ctx context.Context, baseURL string, client *http.Client, key, path string, callTimeout time.Duration) (any, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+path, nil)
 	if err != nil {
 		return nil, source.Errorf(source.Transport, "Could not create DeepInfra request: %v", err)
@@ -219,7 +219,7 @@ func (s LiveSource) fetchJSON(ctx context.Context, baseURL string, client *http.
 	response, err := client.Do(request)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, source.Errorf(source.Transport, "DeepInfra is slow to answer (>8 s) — will retry next refresh")
+			return nil, source.Errorf(source.Transport, "DeepInfra is slow to answer (>%g s) — will retry next refresh", callTimeout.Seconds())
 		}
 		return nil, source.Errorf(source.Transport, "Could not reach DeepInfra payment endpoint: %v", err)
 	}
