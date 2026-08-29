@@ -1,0 +1,54 @@
+{
+  "months": [
+    {
+      "period": "2026.08",
+      "interval": {
+        "fr": 1785567600000,
+        "to": 1788245999999
+      },
+      "items": [
+        {
+          "model": {
+            "provider": "di",
+            "model_name": "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "task": "text-generation",
+            "plan_id": null,
+            "private": false,
+            "contract": null
+          },
+          "units": 6370193,
+          "rate": 9e-06,
+          "cost": 57,
+          "pricing_type": "input_tokens",
+          "interval": {
+            "fr": 1785567600000,
+            "to": 1786344506418
+          },
+          "discount": null
+        },
+        {
+          "model": {
+            "provider": "di",
+            "model_name": "ACE-Step/acestep-v15-xl-sft",
+            "task": "text-to-music",
+            "plan_id": null,
+            "private": false,
+            "contract": null
+          },
+          "units": 128,
+          "rate": 0.1,
+          "cost": 13,
+          "pricing_type": "output_length",
+          "interval": {
+            "fr": 1785567600000,
+            "to": 1788245999999
+          },
+          "discount": null
+        }
+      ],
+      "total_cost": 775,
+      "invoice_id": "INVALID"
+    }
+  ],
+  "initial_month": "2026.08"
+}

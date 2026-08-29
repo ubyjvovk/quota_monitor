@@ -1,0 +1,317 @@
+# Provider reference — where quota actually comes from
+
+Everything below was established by hand against real accounts on 2026-08-29,
+not read from docs or guessed. It is **language-neutral on purpose**: the code
+may be rewritten, but this knowledge is the expensive part and should outlive
+any implementation.
+
+Every response shape named here has a committed fixture under
+`QuotaKit/Tests/QuotaKitTests/Fixtures/`. Those files are plain JSON captures
+and remain valid test data for a port in any language.
+
+---
+
+## Claude (Anthropic) — WORKING
+
+**Credential.** macOS Keychain, generic-password item, service
+`Claude Code-credentials`.
+
+Read it by shelling out:
+
+```
+security find-generic-password -s "Claude Code-credentials" -w
+```
+
+Do **not** use the `SecItemCopyMatching` framework API. For an item another
+app owns it is either refused outright (`errSecInteractionNotAllowed` for an
+unsigned binary) or answered with a GUI "allow access?" dialog, which a CLI
+must never block on. Verified: the `security` CLI returns exit 0, silently.
+
+The item is JSON. The token is at `claudeAiOauth.accessToken`.
+**Address it by that explicit path.** The same blob also holds an `mcpOAuth`
+map with a dozen other services' `accessToken`s, so any recursive
+"find a key named accessToken" search can authenticate as the wrong service.
+This bug shipped once already.
+
+Useful sibling fields: `claudeAiOauth.expiresAt` (epoch **milliseconds**),
+`subscriptionType` (e.g. `max`), `rateLimitTier`.
+
+Treat `expiresAt` as a hint, not a verdict — Claude Code refreshes lazily and
+may not have written the new value back. Send the token and let the server
+decide; a stale timestamp should only shape the wording of a genuine 401.
+
+**Endpoint.**
+
+```
+GET https://api.anthropic.com/api/oauth/usage
+Authorization: Bearer <token>
+anthropic-beta: oauth-2025-04-20
+anthropic-version: 2023-06-01
+Accept: application/json
+```
+
+Verified **200**. Fixture: `claude-usage-live.json`.
+
+**Response.** There is **no `rate_limits` wrapper** — windows sit at the top
+level, and the percentage key is `utilization`. But prefer the canonical
+`limits` array, which is self-describing:
+
+```json
+"limits": [
+  {"kind":"session","group":"session","percent":10,"resets_at":"…","is_active":false},
+  {"kind":"weekly_all","group":"weekly","percent":14,"resets_at":"…","is_active":false},
+  {"kind":"weekly_scoped","group":"weekly","percent":20,"resets_at":"…","is_active":true,
+   "scope":{"model":{"display_name":"Fable"}}}
+]
+```
+
+**Why this matters:** the top-level keys miss `weekly_scoped` entirely. On a
+real Max account that scoped window was at **20%** — the most constrained
+limit — while the top-level keys reported 14% as the worst. Parsing only the
+top-level keys under-reports how close the user is to their ceiling, which is
+the one thing this tool exists to get right.
+
+Also note: `seven_day_opus` is now `null`. Any hard-coded "Opus weekly" window
+is dead. Keep the top-level keys only as a fallback for the older statusline
+mirror payload, which uses `rate_limits` + `used_percentage`.
+
+**Ignore the codenamed buckets** — `tangelo`, `iguana_necktie`, `nimbus_quill`,
+`omelette_promotional`, `cinder_cove`, `amber_ladder`, `juniper_tide`. They are
+unreleased server-side experiments, several report `0.0`, and showing them as
+real quota is wrong. The `limits` array excludes them for free.
+
+**Extra usage** lives in `spend`:
+`used.amount_minor`, `limit.amount_minor`, `limit.exponent`, `enabled`,
+`disabled_reason`. **`enabled` is load-bearing.** This account shows a `20.00`
+balance with `"enabled": false, "disabled_reason": "out_of_credits"` — the
+credits are not spendable, and reporting "20.00 remaining" tells the user they
+have headroom they do not have.
+
+**Local fallback.** A statusline mirror script writes `rate_limits` to
+`~/.quota-monitor/claude-usage.json` (override dir with `QUOTA_MONITOR_DIR`).
+Older shape: `used_percentage` under a `rate_limits` wrapper. No token needed.
+
+---
+
+## ChatGPT / Codex — WORKING (two routes)
+
+### Preferred: the local app-server
+
+The Codex CLI ships a newline-delimited JSON-RPC server over stdio with a
+documented `account/rateLimits/read` method. **No bearer token is handled by
+us, and no bot-protected host is involved.** Measured at **0.24 s**.
+
+```
+printf '%s\n' \
+  '{"method":"initialize","id":1,"params":{"clientInfo":{"name":"quota-check","title":"Quota Check","version":"0.1.0"}}}' \
+  '{"method":"initialized"}' \
+  '{"method":"account/rateLimits/read","id":2}' \
+| codex app-server --stdio
+```
+
+Read stdout line by line and select the object whose `id` is `2`; skip the
+`id: 1` reply and any `remoteControl/status/changed` notifications. Close
+stdin after writing, or the server waits and you get an EOF parse error.
+
+Fixture: `codex-app-server-ratelimits.json`. Payload at `result.rateLimits`:
+
+```json
+{"limitId":"codex",
+ "primary":  {"usedPercent":24,"windowDurationMins":300,  "resetsAt":1788038896},
+ "secondary":{"usedPercent":20,"windowDurationMins":10080,"resetsAt":1788511023},
+ "credits":{"hasCredits":false,"unlimited":false,"balance":"0"},
+ "planType":"plus","spendControlReached":false}
+```
+
+Take `result.rateLimits` by **explicit path** — the sibling
+`rateLimitsByLimitId` repeats every one of those keys, so a breadth-first
+search can return the wrong subtree. `rateLimitResetCredits` also appears
+(free rate-limit resets granted to the account); unused so far.
+
+Use `windowDurationMins` to identify a window rather than assuming
+`primary == 5h`.
+
+### Alternative: HTTP
+
+```
+GET https://chatgpt.com/backend-api/wham/usage
+Authorization: Bearer <~/.codex/auth.json → tokens.access_token>
+ChatGPT-Account-Id: <tokens.account_id>
+```
+
+Verified **200**. Returns `plan_type`, `rate_limit.primary_window` /
+`secondary_window` (`used_percent`, `limit_window_seconds`, `reset_at`),
+`credits`, `spend_control`. It also returns `user_id` and `email` — do not
+store those.
+
+**Two traps here, both of which caught me:**
+- `/backend-api/api/codex/usage` and `/backend-api/codex/usage` return **403
+  with a Cloudflare HTML challenge**, even though the first path appears
+  verbatim in the Codex binary. `wham/usage` on the *same host* returns 200.
+  The path was wrong, not the host. Do not write off a host from two adjacent
+  403s.
+- The 403 probes sent `originator: codex_cli_rs` and a spoofed
+  `User-Agent: codex_cli_rs/0.146.0`; the 200 probe sent neither. The unusual
+  User-Agent is the likelier trigger. Strip odd headers before concluding
+  anything.
+
+**Policy:** identify honestly. Do not spoof a browser User-Agent or attach
+cookies to get past bot protection.
+
+### Local fallback
+
+Codex writes a `token_count` event carrying the full `rate_limits` payload into
+its session rollouts after every turn:
+`~/.codex/sessions/**/rollout-*.jsonl`. Read the **tail** of the newest file —
+these reach many megabytes. Snake_case shape:
+`{"primary":{"used_percent":14.0,"window_minutes":300,"resets_at":1788038896},
+"secondary":{…},"credits":{"has_credits":false,"unlimited":false,"balance":"0"}}`.
+
+This is only as fresh as the user's last Codex turn. When every window has
+reset since then, say so plainly — "ChatGPT reports usage only after a Codex
+turn — last reading 3m ago" — rather than implying an outage.
+
+---
+
+## Grok (xAI) — WORKING
+
+**Credential.** `~/.grok/auth.json`. The top level is keyed by OIDC scope: a
+single key shaped `https://auth.x.ai::<client-id>`, whose value holds `key`
+(the bearer JWT, **~6 hour lifetime**), `refresh_token`, `expires_at`, plus
+profile fields including `email`.
+
+Address the `https://auth.x.ai::` subtree explicitly — same hazard as Claude's
+blob, several credential-shaped fields live side by side.
+
+**Endpoint.**
+
+```
+GET https://cli-chat-proxy.grok.com/v1/billing?format=credits
+Authorization: Bearer <token>
+x-grok-client-mode: grok-build
+Accept: application/json
+```
+
+Verified **200**. Fixture: `grok-billing-credits.json`.
+
+Finding this took real work — record it so nobody repeats it. The host
+`cli-chat-proxy.grok.com` came from `~/.grok/logs/unified.jsonl`; the
+`/billing?format=credits` path and the `x-grok-client-mode` header came from
+strings in the `grok` binary; the **`/v1` prefix** was the last missing piece.
+Dead ends: `grok.com/rest/billing`, `/rest/billing/credits`,
+`/rest/app-chat/billing`, `/rest/user/billing`, `/rest/payments/billing`,
+`grok.com/api/billing`, `code.grok.com/billing`, `api.x.ai/billing`, and bare
+`/billing` on the proxy host.
+
+**Response** (under `config`):
+`creditUsagePercent` (63.0), `currentPeriod.{type,start,end}` with type
+`USAGE_PERIOD_TYPE_WEEKLY`, `onDemandCap`/`onDemandUsed`/`prepaidBalance` each
+`{val: Number}`, `topUpMethod`, `isUnifiedBillingUser`, and:
+
+```json
+"productUsage":[{"product":"GrokBuild","usagePercent":57.0},
+                {"product":"GrokImagine","usagePercent":5.0},
+                {"product":"GrokChat","usagePercent":1.0}]
+```
+
+**`productUsage` is a breakdown of one shared pool** (57 + 5 + 1 ≈ 63), not
+three independent allowances. Rendering each as its own quota window would tell
+the user they have three separate budgets. Show the single
+`creditUsagePercent` window; use the breakdown only as detail, if at all.
+
+**Other Grok endpoints checked:**
+- `GET https://api.x.ai/v1/me` → 200, identity only (`user_id`, `team_id`,
+  `zdr_status`). No quota.
+- `GET https://grok.com/rest/subscriptions` → 200, but it is **Stripe
+  subscription history**: invoice, price and customer identifiers, no usage
+  numbers. Do not ingest it.
+
+---
+
+## Kimi (Moonshot) — NO QUOTA ENDPOINT FOUND
+
+**Credential.** `~/.kimi-code/credentials/kimi-code.json` —
+`access_token`, `refresh_token`, `expires_at`, `expires_in: 900`. The token
+lifetime is **15 minutes**, so expect it to be stale and plan for refresh.
+Base URL from `~/.kimi-code/config.toml`: `https://api.kimi.com/coding/v1`.
+
+`GET /coding/v1/me` returns **200** but is **identity only**: `user_id`,
+`nickname`, `avatar`, **`phone.number`**, `user_level`, `status`, `region`.
+It carries PII and no quota — there is no reason for this tool to call it.
+
+404 on all of: `/usage`, `/quota`, `/balance`, `/subscription`, `/plan`,
+`/limits`, `/me/quota`, `/me/usage`, `/users/me`, `/users/me/balance`,
+`/oauth/usage`, `/plan/usage`, and the same paths without the `/coding`
+prefix.
+
+The `/usage`- and `/balance`-shaped strings inside the `kimi` binary are
+**bundler source paths** (`/packages/agent-core-v2/src/agent/usage/…`), not API
+routes — a false lead worth not re-chasing.
+
+**Verdict:** Kimi most likely surfaces usage in-session only, like Codex's
+header-based limits. To settle it, capture the traffic of the Kimi TUI while it
+displays usage, the way Grok's endpoint was found.
+
+---
+
+## DeepInfra — WORKING, but it is spend, not quota
+
+**Credential.** API key. Read it from the **environment** (`DEEPINFRA_KEY`).
+The repo's `<root>/.env` holds a copy, but it is deliberately masked from
+sandboxed workers — code must not learn to parse it.
+
+Endpoints (from `https://docs.deepinfra.com/llms.txt`; note the paths are
+**not** under `/v1`):
+
+```
+GET https://api.deepinfra.com/payment/config
+    → {"limit": -1.0}          # USD spending limit; negative means no limit
+
+GET https://api.deepinfra.com/payment/usage?from=current
+    → {"months":[{"period":"2026.08",
+                  "interval":{"fr":…,"to":…},   # epoch MILLISECONDS
+                  "items":[…],
+                  "total_cost":775,             # CENTS
+                  "invoice_id":"INVALID"}],
+       "initial_month":"2026.08"}
+```
+
+Both verified **200**. Fixture: `deepinfra-usage.json` (trimmed to two items;
+the live response lists every model the account used).
+
+`GET https://api.deepinfra.com/v1/me` also returns 200 but is identity and
+account flags only — no balance. 404 on `/v1/billing`, `/dash/billing`,
+`/dash/balance`, `/dash/usage`, `/v1/credits`, `/v1/me/usage`, `/v1/account`,
+`deepinfra.com/api/billing`. `/v1/inference/usage` exists but rejects GET.
+
+**DeepInfra is pay-as-you-go: there is no quota and no prepaid balance.** The
+honest readouts are month-to-date spend (`total_cost / 100` USD) and, when
+`limit > 0`, usage against that limit. On this account `limit` is `-1`, so
+there is no percentage to show — only "$7.75 this month". Decide deliberately
+how to present a provider that has spend but no ceiling; do not invent a
+percentage.
+
+---
+
+## Cross-cutting rules learned the hard way
+
+1. **A window that has reset reports no reading, never `0%`.** Zero reads as
+   "plenty left"; the truth is "we don't know yet". Render `—`.
+2. **Timestamps are inconsistent.** Claude's `expiresAt` and DeepInfra's
+   `interval` are epoch **milliseconds**; Codex `resetsAt` is **seconds**;
+   Claude's `resets_at` and Grok's period bounds are **ISO-8601**. Coerce
+   defensively (a value past ~year 2286 in seconds is really milliseconds).
+3. **Never search a credential blob recursively.** Claude's Keychain item and
+   Grok's auth file both hold several services' tokens. Address by explicit
+   path, always.
+4. **Do not ingest PII or billing identifiers.** Kimi `/me` returns a phone
+   number; Grok `/rest/subscriptions` returns Stripe IDs; ChatGPT
+   `wham/usage` returns an email. None of it is quota.
+5. **Report failures the user can act on.** "Run `grok login`" beats a status
+   code. Rank an expired token above an unconfigured optional source, or you
+   send the user to fix the wrong thing.
+6. **Prefer a vendor's local CLI over its private HTTP API** where one exists
+   (`security` for Claude, `codex app-server` for ChatGPT). No token handling,
+   no bot protection, and the vendor maintains the contract.
+7. **Identify honestly.** No spoofed User-Agents, no cookies lifted from a
+   browser, no bot-protection workarounds.

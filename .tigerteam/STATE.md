@@ -244,3 +244,55 @@ correct for that path. T-0006 adds the live source above it.
 from workers by `worker.sb`. If a DeepInfra provider is ever built, it must
 read the key from the **environment**, never by parsing `.env` — workers cannot
 read that file and must not learn to.
+
+## DeepInfra — RESOLVED (2026-08-29, third round)
+Found via the vendor's own docs index (`https://docs.deepinfra.com/llms.txt`)
+rather than by guessing paths — the paths are **not** under `/v1`:
+- `GET https://api.deepinfra.com/payment/config` → `{"limit": -1.0}` (USD
+  spending limit; negative = no limit). **200.**
+- `GET https://api.deepinfra.com/payment/usage?from=current` → `months[]` with
+  `total_cost` in **cents** and `interval` in **milliseconds**. **200.**
+Key comes from the `DEEPINFRA_KEY` environment variable — never by parsing
+`<root>/.env`, which is masked from workers by `worker.sb`.
+DeepInfra is pay-as-you-go: no quota, no prepaid balance. Honest readouts are
+month-to-date spend ($7.75 here) and usage against a limit when one is set.
+Fixture: `Fixtures/deepinfra-usage.json` (trimmed).
+
+## PAUSED 2026-08-29 — core language under review, board halted
+The human asked whether the core should move from Swift to **Python** to make
+it genuinely cross-platform (an Omarchy/Ubuntu UI, possibly a Windows widget),
+then said to stop and summarise for a restart. **Nothing further was queued.**
+
+State at the pause:
+- Supervisor stopped (`tigerteam down`); `.tigerteam/STOP` present.
+- T-0001..T-0005 accepted and merged on `master`. 60 tests green.
+- **T-0006** (live ChatGPT via `codex app-server`) and **T-0007** (Grok
+  provider) were written, then pulled back to `.tigerteam/board/drafts/`
+  **unstarted** — do not re-queue them as-is if the core is rewritten. Their
+  *content* (endpoints, mappings, gotchas) is still correct and worth mining.
+- The killed T-0006 attempt produced no commits; its branch was deleted. No
+  work lost.
+
+**The durable asset is `PROVIDERS.md` at the repo root** — every endpoint,
+credential path, response shape, dead end and gotcha, written to be
+language-neutral. Plus four committed JSON fixtures that remain valid test data
+in any language: `claude-usage-live.json`,
+`codex-app-server-ratelimits.json`, `grok-billing-credits.json`,
+`deepinfra-usage.json`.
+
+Sizing for a port decision: `QuotaKit/Sources` is ~2,550 lines total, of which
+only these are Apple-locked — `Support/Keychain.swift`,
+`Support/SeverityColor.swift`, `Engine/QuotaEngine.swift` (Observation),
+`Engine/WidgetRefresher.swift` (WidgetKit), `UI/Sparkline.swift`,
+`UI/TufteTheme.swift`. The provider/model/format layer is plain Foundation.
+
+Behaviours worth preserving in any rewrite (each cost a real bug to learn):
+1. A reset window reports no reading, never `0%`.
+2. Credentials addressed by explicit path, never a recursive key search.
+3. Extra-usage credits honour an `enabled`/spendable flag before claiming a
+   balance is available.
+4. Live wins when it succeeds; otherwise show the cached reading *and* say why
+   it is not live.
+5. The most *actionable* failure is the one reported, not the last one.
+6. Prefer a vendor's local CLI (`security`, `codex app-server`) over its
+   private HTTP API.
