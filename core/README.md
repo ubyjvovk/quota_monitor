@@ -22,13 +22,13 @@ Run the commands from `core/`, or install the built `quotamon` binary on your
 `PATH`:
 
 ```sh
-quotamon [--no-live]
-quotamon --json [--no-live]
-quotamon snapshot [--no-live]
-quotamon waybar [--no-live]
-quotamon check [--no-live]
-quotamon setup          # interactive wizard (T-0019)
-quotamon providers      # list providers and their configuration (T-0019)
+quotamon                    # human-readable table (this is the default)
+quotamon --json             # alias for `snapshot`
+quotamon snapshot           # normalized snapshot as JSON
+quotamon waybar             # one line of Waybar custom-module JSON
+quotamon check              # probe every source independently
+quotamon setup              # configure providers interactively
+quotamon providers          # list providers and whether each is enabled
 ```
 
 The bare invocation fetches every provider and prints the human-readable table
@@ -36,11 +36,15 @@ in registry order:
 
 ```text
 Claude          Max    live · just now
-  5h                43%  resets in 2h 11m
-ChatGPT / Codex Plus   cached · 3m ago
-  Week              18%  resets in 6d 7h
-Grok            —      unavailable · just now
-  !  set GROK_API_KEY to enable live quota
+  5h               43%  resets in 2h 11m
+  Week             20%  resets in 4d 23h
+  credits      $20.00 (not enabled)
+ChatGPT         Plus   cached · 3m ago
+  Week             18%  resets in 6d 7h
+Grok            —      live · just now
+  Week             63%  resets in 4d 6h
+DeepInfra       pay-as-you-go live · just now
+  credits       $7.75 this month
 ```
 
 `snapshot` fetches all providers concurrently, prefers usable live readings,
@@ -52,7 +56,7 @@ independently, and reports its window count and plan or its actionable error
 kind. All commands cap the overall operation at ten seconds. `--no-live`
 guarantees that live endpoints, credentials, and subprocesses are skipped.
 
-Exit codes are:
+## Exit codes
 
 - `0` when the table or `snapshot` finds at least one provider window, when
   `waybar` or `check` writes its output, or when help is requested;
@@ -145,6 +149,19 @@ variable — so it is safe to run non-interactively. `quotamon providers` prints
 the same table plus an `on`/`off` column read from the config, and exits `3`
 with the setup hint when the config file does not exist yet.
 
+## Environment variables
+
+QuotaMon honours a small set of environment variables, all optional:
+
+- `QUOTA_MONITOR_DIR` — base directory for QuotaMon state. When set, it wins
+  the config path (`$QUOTA_MONITOR_DIR/config.json`) and the Claude statusline
+  mirror path (default `~/.quota-monitor/claude-usage.json`).
+- `QUOTA_MONITOR_CODEX_USAGE_URL` — turns on the optional HTTP route for
+  ChatGPT (`wham/usage`) instead of the default `codex app-server`; reads the
+  token from `~/.codex/auth.json`.
+- `DEEPINFRA_KEY` — DeepInfra API key, used when the config file's
+  `deepinfra.api_key` is empty.
+
 ## Waybar
 
 Add the custom module to the Waybar configuration:
@@ -205,6 +222,21 @@ All three routes share one normalizer. It accepts snake-case and camel-case
 window spellings, infers labels and kinds from reported durations, and
 discards endpoint identity fields. HTTP requests identify themselves as
 `quotamon`; they do not send an `originator` header.
+
+### Grok
+
+The live source reads the Grok CLI bearer token from `~/.grok/auth.json`. The
+file is keyed by OIDC scope, so QuotaMon deterministically selects the first
+key beginning with `https://auth.x.ai::` and reads only that object's `key`
+and `expires_at` fields. It does not ingest the neighboring email or profile
+data.
+
+Usage comes from
+`GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` with the
+`x-grok-client-mode: grok-build` header. The response's `productUsage` entries
+are a breakdown of one shared allowance, not independent quotas. QuotaMon
+therefore exposes exactly one weekly window from `config.creditUsagePercent`
+and never turns product breakdowns into additional windows.
 
 ### DeepInfra
 

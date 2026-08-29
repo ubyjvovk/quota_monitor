@@ -1,181 +1,206 @@
-# Quota Monitor
+# QuotaKit
 
-A macOS menu bar app and desktop widget showing remaining quota across your
-LLM subscriptions. Ships with **Claude** (Max/Pro) and **ChatGPT** (Plus/Pro via
-Codex); other providers are a protocol conformance away.
+QuotaKit shows how much of your LLM subscription quota you have left, as a
+small portable command-line tool called **`quotamon`** plus a Waybar module
+for tiling-window Linux desktops. It reads your **Claude** (Anthropic),
+**ChatGPT** (Codex), **Grok** (xAI) and **DeepInfra** accounts and prints one
+normalised table so you can see, at a glance, which provider you are about to
+hit your ceiling on. Kimi is recognised but exposes no quota endpoint yet, so
+it is not shown. A macOS menu-bar app and widget are planned (currently on
+hold — the new design is SwiftUI over the same core).
 
-```
-CL 43%  ·  GPT 18%                       ← menu bar
-
-┌──────────────────────────────────────────┐
-│ Claude 5h runs out in 1h 13m        ⟳ ⇅ │  ← the finding, asserted
-│ updated just now                         │
-│                                          │
-│ Claude   max                        live │
-│  5h        ╱‾‾‾‾●⋯⋯⋯⋯⋯          71%     │  ← usage vs. linear-pace diagonal
-│            1.2× pace · out in 1h 13m     │
-│  Week      ▁▁▁●⋯⋯⋯⋯⋯⋯⋯          12%     │
-│            under pace · resets in 4d 23h │
-│ ─────────────────────────────────────────│
-│ ChatGPT  plus                     2h ago │
-│  Week      ▁▁▁▁▁▁●⋯⋯⋯           18%     │
-└──────────────────────────────────────────┘
-```
+The heavy lifting lives in [`core/`](core/README.md), a single static Go
+binary. Everything above the normalised snapshot — the macOS app, the widget,
+the Waybar module — is a dumb renderer of it.
 
 ## Quick start
 
+Build the binary, then let it discover your accounts:
+
 ```bash
-brew install xcodegen
-./scripts/build.sh    # build + launch
+cd core && make build
+./bin/quotamon setup      # first run: discovers accounts, writes config
 ```
 
-Claude works out of the box via its usage endpoint. The statusLine mirror below
-is an optional offline fallback.
+`setup` probes for local credentials and shows what it found before asking
+which providers to enable:
+
+```text
+Looking for providers…
+✓ Claude      Keychain item present
+✓ ChatGPT     ~/.codex/auth.json
+✗ Grok        not signed in — run `grok login`
+✗ DeepInfra   no API key
+· Kimi        credentials found, but Kimi exposes no quota API yet
+
+Enable Claude? [Y/n]
+Enable ChatGPT? [Y/n]
+Enable Grok? [y/N]
+Enable DeepInfra? [y/N]
+DeepInfra API key (input hidden is not available; paste and press Enter):
+Wrote /Users/you/.config/quotamon/config.json (mode 0600). Run: quotamon
+```
+
+Then just run it:
+
+```bash
+./bin/quotamon
+```
+
+```text
+Claude          Max    live · just now
+  5h               43%  resets in 2h 11m
+  Week             20%  resets in 4d 23h
+  credits      $20.00 (not enabled)
+ChatGPT         Plus   cached · 3m ago
+  Week             18%  resets in 6d 7h
+Grok            —      live · just now
+  Week             63%  resets in 4d 6h
+DeepInfra       pay-as-you-go live · just now
+  credits       $7.75 this month
+```
+
+Configuration lives in one JSON file (see the path precedence in
+[`core/README.md`](core/README.md#configuration)). API keys may live in that
+file, but the file is always written with mode **0600**, and a config carrying
+an `api_key` with looser permissions is refused — fix it with
+`chmod 600 <path>`.
+
+The other commands:
+
+```bash
+./bin/quotamon --json     # normalized snapshot as JSON (alias for `snapshot`)
+./bin/quotamon waybar     # one line of Waybar custom-module JSON
+./bin/quotamon check      # probe every source independently
+./bin/quotamon providers  # which providers are enabled
+```
+
+Cross-compile for all supported platforms in one shot:
+
+```bash
+make matrix               # darwin/arm64, linux/amd64, linux/arm64
+```
+
+## Omarchy / Waybar
+
+`quotamon` ships a Waybar custom module. Add this to your Waybar config:
+
+```json
+"custom/quota": { "exec": "quotamon waybar", "return-type": "json",
+                  "interval": 300 }
+```
+
+The module emits `text`, `tooltip`, `class`, and `percentage`. Style it with
+`#custom-quota` in your Waybar CSS; the class is `normal` below 70%,
+`warning` below 90%, `critical` above that, and `unavailable` when no provider
+has a current reading, so you can colour each state. `interval` is in seconds
+(here, five minutes); `quotamon` runs a fresh fetch on every call, so keep it
+coarse enough for your machine.
 
 ## Where the numbers come from
 
-Neither vendor publishes a subscription-quota API, so each provider has **two**
-sources and the app prefers whichever is both fresher and trustworthy.
+Neither vendor publishes a subscription-quota API, so each provider is read
+from wherever its CLI keeps state. Details, endpoints and gotchas for every
+provider are in [`PROVIDERS.md`](PROVIDERS.md) — don't duplicate that here,
+link to it.
 
-| Provider | Local (default) | Live (opt-out) |
-|---|---|---|
-| Claude | `~/.quota-monitor/claude-usage.json`, written by a Claude Code **statusLine** hook | `GET api.anthropic.com/api/oauth/usage`, OAuth token from Keychain `Claude Code-credentials` |
-| ChatGPT | newest `~/.codex/sessions/**/*.jsonl` rollout, which Codex updates every turn | `chatgpt.com/backend-api/api/codex/usage`, token from `~/.codex/auth.json` |
+| Provider | Credential | Route | Status |
+|---|---|---|---|
+| Claude | Claude Code OAuth via the `security` CLI (Keychain) | `api.anthropic.com/api/oauth/usage` | ✅ live |
+| ChatGPT / Codex | handled by the vendor CLI, no token touched | `codex app-server` JSON-RPC (`account/rateLimits/read`) | ✅ live |
+| Grok | bearer token in `~/.grok/auth.json` | `cli-chat-proxy.grok.com/v1/billing?format=credits` | ✅ live |
+| DeepInfra | `DEEPINFRA_KEY` (env or config) | `api.deepinfra.com/payment/*` | ✅ live — spend, not quota |
+| Kimi | `~/.kimi-code/credentials/kimi-code.json` | none found | ❌ no quota endpoint |
 
-**Local** costs nothing, touches no tokens, makes no network call — but is only
-as fresh as your last CLI turn. **Live** is current but rides undocumented
-endpoints. When live fails the cached number is still shown, labelled with the
-reason. Turn live off per-provider in the panel's settings to go fully offline.
+Each provider has up to **two** sources, and the tool prefers whichever is
+fresher *and* trustworthy. The **live** source talks to the account and is
+current, but rides undocumented endpoints. The **local** source reads a file a
+vendor CLI has already written (Claude's statusline mirror, Codex's session
+rollouts); it costs nothing and touches no tokens, but is only as fresh as
+your last CLI turn.
 
-The Claude statusLine route is appealing because `rate_limits` is part of Claude
-Code's *documented* statusLine payload rather than a private API — but it only
-fires in terminal Claude Code. Inside the desktop app there is no status line to
-render, so nothing ever calls the hook. Live is therefore the default for Claude.
+That freshness matters: a quota window that has **reset** since it was
+recorded shows **`—`**, never `0%`. Returning `0%` there would claim a fresh,
+empty window the tool has no evidence for, and would read as "plenty left"
+when the truth is "we don't know yet". So Live wins when it succeeds;
+otherwise the cached reading is shown *and* labelled with why it is stale.
 
-### Verified status
+## Principles
 
-- Claude live — **working**. This is the default Claude source.
-- Claude local — **working**, but note the statusLine hook only fires in
-  *terminal* Claude Code. The desktop app renders no status line, so the mirror
-  is never written there. Useful as an offline fallback if you use the terminal.
-- ChatGPT local — **working**
-- ChatGPT live — returns `404`; the exact path is undocumented. Override without
-  rebuilding: `QUOTA_MONITOR_CODEX_USAGE_URL=https://…`. Local covers this
-  provider well, so the impact is small.
+- **Absence is never zero.** A reset or missing window renders `—`, never a
+  zero the user could misread as "plenty left".
+- **Credentials are addressed by path, never searched for.** Claude's Keychain
+  item and Grok's auth file both hold several services' tokens side by side; a
+  recursive "find an access token" finds the wrong one. A silent-key bug
+  shipped once already, so every credential is taken from an explicit,
+  deterministic path.
+- **Stale readings are corrected, not trusted.** A recording past its
+  `resetsAt` reports no current reading.
+- **Identify honestly.** No spoofed User-Agents, no cookies lifted from a
+  browser, no bot-protection workarounds. Where a vendor ships a local CLI
+  (`security`, `codex app-server`), use it over its private HTTP API.
 
-### Why not the claude.ai web endpoint?
+The sparkline / pace design you may have seen in older versions of this
+project belongs to the **macOS app** (currently on hold). It answers
+"compared to what?" by drawing each window across its full span against a
+diagonal of even consumption — a number becomes a decision. That reasoning
+still stands and will return with the app.
 
-`GET claude.ai/api/organizations/{org}/usage` is what the web app itself calls,
-but it sits behind a Cloudflare managed challenge. The `cf_clearance` cookie is
-bound to the originating browser's TLS fingerprint, IP and User-Agent, so
-replaying it from `URLSession` returns `403 Just a moment…`. Tested and confirmed.
+## macOS app & widget
 
-Making it work would mean either evading the bot check — which this project does
-not do — or hosting a `WKWebView` that loads claude.ai so the real browser engine
-satisfies the challenge normally, then reading the endpoint from inside that
-session. That is legitimate but heavy, and it puts a browser and a live session
-cookie inside a menu bar app — all to fetch numbers `/api/oauth/usage` already
-returns. Not worth it.
+**On hold.** The SwiftUI menu-bar app and WidgetKit widget are paused while
+the UI is redesigned; the Swift fetchers are frozen at reference behaviour and
+nothing new is built there. When they resume, build as before:
 
-## The widget
-
-The widget builds, embeds and registers, but shows *"Open Quota Monitor"* until
-you give it an App Group — a sandboxed widget has no other way to read the app's
-snapshot, and App Groups require a signing team.
-
-To enable it, edit [`Config/Signing.xcconfig`](Config/Signing.xcconfig):
-
+```bash
+brew install xcodegen
+./scripts/build.sh
 ```
-DEVELOPMENT_TEAM = YOURTEAMID          # a free Apple ID works
-CODE_SIGN_STYLE  = Automatic
-QM_ENTITLEMENTS_VARIANT = -AppGroup
-```
 
-then `./scripts/build.sh`. The menu bar app is unaffected either way.
+The plan is that the app bundles the `quotamon` binary in its
+`Contents/MacOS/`, runs it on the refresh interval, and ingests the snapshot
+JSON — the widget keeps reading the shared snapshot store and never execs
+anything. See [GO-PORT.md](GO-PORT.md) → "Platform landings" for the detail.
 
 ## Layout
 
 ```
-QuotaKit/            multiplatform core (macOS + iOS) — models, sources, engine
-  Sources/QuotaKit/
-    Models/          QuotaWindow, ProviderSnapshot, QuotaSnapshot
-    Providers/       QuotaSource protocol, Claude + Codex, hybrid merge
-    Engine/          refresh loop, shared snapshot store
-  Sources/quotactl/  diagnostic CLI
-App/                 SwiftUI MenuBarExtra app
-Widget/              WidgetKit extension (macOS today, iOS next)
-scripts/             statusline mirror + installer, build
+core/                portable Go core — the snapshot contract and every source
+  cmd/quotamon/      the CLI (table, --json/snapshot, waybar, check, setup)
+  internal/providers/ per-provider sources (claude, codex, grok, deepinfra)
+QuotaKit/            macOS app core — Swift models, sources, engine (frozen)
+  Sources/quotactl/  diagnostic CLI (the parity reference)
+App/                 SwiftUI menu bar app (ON HOLD)
+Widget/              WidgetKit extension (ON HOLD)
+scripts/             build + the Claude statusline mirror installer
 ```
 
 ## Troubleshooting
 
-`quotactl` reports each source independently, so a wrong number can be traced to
-its origin:
+`quotamon check` probes every source independently, so a wrong number can be
+traced to its origin. Each line reports a source and an error *kind*:
 
-```bash
-cd QuotaKit && swift run quotactl          # local only
-cd QuotaKit && swift run quotactl --live   # also try the endpoints
-```
+| Kind | Meaning | What to do |
+|---|---|---|
+| `notConfigured` | an optional source wasn't set up, or no credential found | enable the source, or sign in (e.g. `claude`, `codex login`, `grok login`) |
+| `unauthorized` | the credential was rejected | sign in again; the message says which provider |
+| `transport` | a network or endpoint hiccup | try again — a retry may succeed, or the endpoint moved |
+| `malformed` | the response couldn't be parsed | probably endpoint drift; an update will address it |
+| `noDataFound` | a configured source contained no usable reading | run the vendor CLI once so a local rollout exists |
+| `skipped (--no-live)` | a live-only source was not probed | expected under `--no-live` |
 
-Run the tests with `cd QuotaKit && swift test`.
+Two notes:
 
-## Design notes
+- **Claude reads its credential via the `security` CLI, never the framework
+  API.** The framework API either refuses an unsigned binary or pops an
+  interactive "allow access?" dialog, which a console tool must never block
+  on. The `security` CLI returns the item silently.
+- **ChatGPT reports usage only after a Codex turn.** If every Codex window has
+  reset since your last turn, the tool says so plainly ("…only after a Codex
+  turn — last reading 3m ago") rather than implying an outage.
 
-**The chart answers "compared to what?"** A bare "43% used" is not actionable:
-43% is fine four hours into a five-hour window and alarming ten minutes in. Each
-window is drawn as a sparkline across the *whole* window — where the line stops
-shows the time remaining — against a dashed diagonal representing perfectly even
-consumption. Ink above the diagonal means burning faster than the clock. That
-single comparison turns a number into a decision.
+## Contributing / for agents
 
-Consequently the headline asserts a finding ("Claude 5h runs out in 1h 13m")
-rather than labelling an axis, and colour marks only the window that is
-overspending. Everything else stays gray.
-
-**Progress bars were removed deliberately.** A bar spends a lot of ink to encode
-one number and cannot show history or pace. The sparkline carries the number,
-its trajectory and its reference in less space.
-
-**Stale readings are corrected, not trusted.** A local reading of "82% used" is
-meaningless once the window has reset, so `currentUsedPercent(asOf:)` returns nil
-past `resetsAt`.
-
-**Credentials are addressed by path, never searched for.** The Claude Keychain
-item holds `claudeAiOauth` alongside `mcpOAuth`, a map of per-MCP-server
-credentials that each carry their own `accessToken`. A recursive key search finds
-an arbitrary one of those — dictionary order is not stable — and authenticates as
-the wrong service, or with an empty string. That produced a persistent `429` that
-looked exactly like rate limiting. `JSONValue.firstValue(forKey:)` stays for
-parsing unknown *response* shapes; credentials use explicit paths.
-
-**Absence is never zero.** A reset or missing window renders `—` with "no reading
-since this window reset". Returning `0%` there would assert a fresh, empty window
-we have no evidence for — the same mistake as showing the stale number, in the
-opposite direction.
-
-**Dark mode is designed, not inverted.** The accent desaturates from `#e41a1c` to
-`#fc8d62`, because a colour tuned for an off-white ground vibrates against a dark
-one.
-
-**Adding a provider** means adding one `HybridProvider` to
-`QuotaEngine.makeProviders()`. Everything downstream is driven off the normalised
-snapshot, so no UI changes are needed.
-
-### Reviewing the design
-
-The panel renders to PNG without needing a screenshot:
-
-```bash
-QUOTA_MONITOR_RENDER=/tmp/panel "build/Build/Products/Debug/Quota Monitor.app/Contents/MacOS/Quota Monitor"
-```
-
-Writes `panel-light.png` and `panel-dark.png` from representative data, then
-exits. Add `QUOTA_MONITOR_RENDER_REAL=1` to render your actual current state.
-
-## iPhone widget
-
-`QuotaKit` already builds for iOS 17+ and the widget views are plain SwiftUI, so
-the remaining work is transport: the phone can't read your Mac's `~/.codex`. The
-intended route is the Mac app publishing snapshots to CloudKit (or
-`NSUbiquitousKeyValueStore` — the payload is under 1 KB) with the iOS widget as a
-read-only consumer, which keeps every credential on the Mac.
+- [`AGENTS.md`](AGENTS.md) — how to work here (layout, conventions, commands, gotchas).
+- [`PROVIDERS.md`](PROVIDERS.md) — the provider contract: endpoints, credentials, dead ends.
+- [`GO-PORT.md`](GO-PORT.md) — the design record and status of the Go core port.
