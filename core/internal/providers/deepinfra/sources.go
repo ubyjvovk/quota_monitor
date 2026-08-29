@@ -17,9 +17,8 @@ import (
 // design, NOT under /v1 — see PROVIDERS.md.
 const defaultBaseURL = "https://api.deepinfra.com"
 
-// keyEnv is the environment variable holding the DeepInfra API key. It is read
-// from the environment only; the repo's .env is masked from workers and the
-// code must never learn to parse it.
+// keyEnv is the environment fallback for the DeepInfra API key. The registry
+// injects a config-backed key first and never parses the repo's masked .env.
 const keyEnv = "DEEPINFRA_KEY"
 
 // LiveSource reads DeepInfra month-to-date spend from its payment endpoints.
@@ -51,7 +50,7 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	}
 	key := keyProvider()
 	if key == "" {
-		return snapshot.Provider{}, source.Errorf(source.NotConfigured, "Set DEEPINFRA_KEY to read DeepInfra spend")
+		return snapshot.Provider{}, source.Errorf(source.NotConfigured, "Add DeepInfra api_key to config.json or set DEEPINFRA_KEY to read spend")
 	}
 
 	baseURL := s.BaseURL
