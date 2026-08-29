@@ -41,11 +41,36 @@ public struct Credits: Codable, Hashable, Sendable {
     public var hasCredits: Bool
     public var unlimited: Bool
     public var balance: String?
+    /// Whether the balance can actually be spent. A provider can report a
+    /// non-zero balance that is switched off (Claude: `spend.enabled == false`
+    /// with `disabled_reason`), and showing that as available headroom is the
+    /// one thing this tool must never do.
+    public var enabled: Bool
 
-    public init(hasCredits: Bool, unlimited: Bool, balance: String? = nil) {
+    /// Creates a provider-reported credit balance.
+    public init(
+        hasCredits: Bool,
+        unlimited: Bool,
+        balance: String? = nil,
+        enabled: Bool = true
+    ) {
         self.hasCredits = hasCredits
         self.unlimited = unlimited
         self.balance = balance
+        self.enabled = enabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hasCredits, unlimited, balance, enabled
+    }
+
+    /// Decodes older persisted balances as enabled when they predate the flag.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.hasCredits = try container.decode(Bool.self, forKey: .hasCredits)
+        self.unlimited = try container.decode(Bool.self, forKey: .unlimited)
+        self.balance = try container.decodeIfPresent(String.self, forKey: .balance)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 }
 
