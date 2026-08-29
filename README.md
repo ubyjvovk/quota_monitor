@@ -1,6 +1,6 @@
-# QuotaKit
+# Quota Monitor
 
-QuotaKit shows how much of your LLM subscription quota you have left, as a
+Quota Monitor shows how much of your LLM subscription quota you have left, as a
 small portable command-line tool called **`quotamon`** plus a Waybar module
 for tiling-window Linux desktops. It reads your **Claude** (Anthropic),
 **ChatGPT** (Codex), **Grok** (xAI) and **DeepInfra** accounts and prints one
@@ -48,11 +48,11 @@ Then just run it:
 ```
 
 ```text
-Claude          Max    live · just now
+Claude          max    live · just now
   5h               43%  resets in 2h 11m
   Week             20%  resets in 4d 23h
-  credits      $20.00 (not enabled)
-ChatGPT         Plus   cached · 3m ago
+  credits        20.00 (not enabled)
+ChatGPT         plus   cached · 3m ago
   Week             18%  resets in 6d 7h
 Grok            —      live · just now
   Week             63%  resets in 4d 6h
@@ -99,10 +99,9 @@ coarse enough for your machine.
 
 ## Where the numbers come from
 
-Neither vendor publishes a subscription-quota API, so each provider is read
+No vendor publishes a subscription-quota API, so each provider is read
 from wherever its CLI keeps state. Details, endpoints and gotchas for every
-provider are in [`PROVIDERS.md`](PROVIDERS.md) — don't duplicate that here,
-link to it.
+provider are in [`PROVIDERS.md`](PROVIDERS.md).
 
 | Provider | Credential | Route | Status |
 |---|---|---|---|

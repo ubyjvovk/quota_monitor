@@ -35,11 +35,11 @@ The bare invocation fetches every provider and prints the human-readable table
 in registry order:
 
 ```text
-Claude          Max    live · just now
+Claude          max    live · just now
   5h               43%  resets in 2h 11m
   Week             20%  resets in 4d 23h
-  credits      $20.00 (not enabled)
-ChatGPT         Plus   cached · 3m ago
+  credits        20.00 (not enabled)
+ChatGPT         plus   cached · 3m ago
   Week             18%  resets in 6d 7h
 Grok            —      live · just now
   Week             63%  resets in 4d 6h
