@@ -376,3 +376,13 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
 - Remaining: T-0016 docs (in flight). After it: the board is drained.
 - Not ticketed / needs the user: Mac app cutover (App/ on hold); Windows;
   history/pace in Go; AUR packaging; Kimi (no endpoint).
+
+### Board drained — 2026-08-29 ~22:20
+- T-0016 docs accepted (+ PM commit fixing title, a leaked ticket phrase,
+  and the sample table). 18 tickets done; full suite green on master
+  (62 Swift tests, 13 Go packages). Fleet cost: 36 attempts, 2h34m wall,
+  22.6M tokens in (92% cached), $0.12 reported (most engines report no cost).
+- Supervisor left running, idle. `tigerteam down` when not needed.
+- Next candidates (need user decision): Mac app cutover (GO-PORT step 3,
+  `App/` on hold); AUR/curl install; history/pace in Go; Windows tray;
+  Kimi endpoint capture.

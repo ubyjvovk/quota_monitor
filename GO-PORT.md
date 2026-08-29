@@ -218,7 +218,7 @@ User-Agents, no cookies, no bot-protection workarounds.
 | Bare `quotamon` human table, `--json` alias | **done** (T-0015, T-0020) | — |
 | Config: mandatory JSON at `~/.config/quotamon/config.json` (or `$QUOTA_MONITOR_DIR`), keys allowed with 0600 enforced, exit 3 + hint when missing | **done** (T-0018) | — |
 | `quotamon setup` (local-only discovery → per-provider Y/n → key prompt → manual add) and `quotamon providers` | **done** (T-0019) | — |
-| User-facing docs rewrite | in progress (T-0016) | — |
+| User-facing docs rewrite | **done** (T-0016) | `README.md`, `core/README.md` |
 | Cutover step 2: Swift fetchers frozen | in effect (AGENTS.md) | — |
 | Cutover step 3: Mac app bundles `quotamon`, Swift fetchers deleted | **not started** — `App/` is on hold pending the UI rework | — |
 | Windows, daemon mode, history/pace in Go | not started (by design) | — |
