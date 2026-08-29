@@ -325,3 +325,24 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
 
 **PM acceptance step after T-0011:** run `quotamon snapshot` vs
 `swift run quotactl --json` on this Mac; every percentage must agree.
+
+### Phase 1 landed — 2026-08-29 ~20:55
+- T-0008 scaffold, T-0009 Claude, T-0010 Codex, T-0011 CLI/hybrid/waybar all
+  accepted on master. Go suite: 9 packages green; Swift 62 tests green.
+- **Parity verified by PM**: `quotamon snapshot` vs `quotactl --json` on this
+  Mac — Claude 3/15/21, ChatGPT 70/27, identical. `waybar` and `check` work.
+- Fleet cost so far negligible (see `tigerteam cost`).
+- **Open bug T-0014 (P0/C1, in progress):** the default app-server runner
+  closes stdin before the id:2 reply arrives; the server exits early. Rollout
+  fallback covers it meanwhile, and the hybrid status says so honestly.
+  Root cause was PROVIDERS.md (my text) saying "close stdin after writing";
+  corrected in commit "PROVIDERS.md: app-server needs stdin held open".
+- Two PM slips this session, both caught by workers/doc: a wrong wall-clock
+  time in a T-0010 criterion (1788038896 s = 21:28:16Z) and the stdin rule.
+- `ds` lane (pi/DeepSeek, user-added) fast-fails: model not found →
+  `STOP.ds` present. User to fix or remove the profile.
+- Phase 2 queued next: T-0012 Grok → T-0013 DeepInfra (serialised: both
+  touch registry.go and waybar.go).
+- Not yet ticketed (GO-PORT cutover steps 2–3): freeze notice in AGENTS.md
+  is done; mac-app bundling of `quotamon` and deleting Swift fetchers await
+  the user's go-ahead since App/ is on hold.
