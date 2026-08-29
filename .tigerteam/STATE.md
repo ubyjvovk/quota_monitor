@@ -81,3 +81,30 @@ their UI elsewhere — and workers are told not to touch `App/`, `Widget/`, or
 4. `git worktree list` — tigerteam/* entries are unmerged ticket branches.
 5. `tigerteam up` (or `tigerteam worker run <worker> --once` to smoke first).
 6. Continue from Next actions.
+
+## Environment incidents (2026-08-29) — all found by workers blocking, not guessing
+Worker `codex` blocked T-0001 with three infrastructure failures. All were real
+and all were mine; its code was fine (42 tests green once the sandbox worked).
+
+1. **`sandbox_apply: Operation not permitted`** — SwiftPM nests its own
+   `sandbox-exec`; macOS refuses nested Seatbelt. Handled by `--disable-sandbox`
+   in `test_cmd`.
+2. **`codesign` EPERM / `git fatal: Invalid path '/Users/d/b'`** — one root
+   cause. `worker.sb` denied all of `$HOME` and re-allowed only ROOT, never the
+   ancestors between them; path resolution stats every component. Any repo
+   nested below `$HOME` broke git, and broke `codesign`, which fails every
+   `swift build` producing an executable. Fixed in `f7d5b10` by allowing
+   path-component *metadata* everywhere (contents still denied; smoke still
+   passes every boundary check). **My first smoke test missed this because it
+   built in `/tmp`, which has no denied ancestors — test in a real worktree.**
+3. **`TIGERTEAM_TEST_CMD not set`** — the supervisor was started before
+   `test_cmd` existed in `tigerteam.toml` and injects env at launch. Restarted
+   (pid 5605). *Any config change needs a supervisor restart to reach workers.*
+
+**Known machine quirk:** `run-tests.sh`'s fallback (`tigerteam config get
+test_cmd`) cannot work inside the sandbox on this Mac — `tigerteam` is a uv
+*editable* install resolving to `/Users/d/w/TT/tigerteam/src`, outside the
+profile's allowed tree, so it dies with `ModuleNotFoundError`. Workers depend
+entirely on the supervisor's injected `TIGERTEAM_TEST_CMD`. If a worker ever
+reports the var missing again, restart the supervisor first — do not widen the
+sandbox to another repo.
