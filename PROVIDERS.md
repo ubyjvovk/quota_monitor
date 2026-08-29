@@ -240,10 +240,31 @@ the user they have three separate budgets. Show the single
 **Credential.** `~/.kimi-code/credentials/kimi-code.json` —
 `access_token`, `refresh_token`, `expires_at` (epoch **seconds**),
 `expires_in: 900`, `scope`, `token_type`. The token lifetime is **15
-minutes**; the Kimi TUI refreshes it on launch. The refresh endpoint is not
-yet known — on a 401, report "Kimi sign-in expired — run `kimi` once" rather
-than guessing. Base URL from `~/.kimi-code/config.toml`:
-`https://api.kimi.com/coding/v1`.
+minutes**; the Kimi TUI refreshes it on launch. Base URL from
+`~/.kimi-code/config.toml`: `https://api.kimi.com/coding/v1`.
+
+**Refresh (verified 2026-08-29, captured from the TUI with the same hook):**
+
+```
+POST https://auth.kimi.com/api/oauth/token
+Content-Type: application/x-www-form-urlencoded
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098&grant_type=refresh_token&refresh_token=<refresh_token>
+→ 200 {"access_token":…,"refresh_token":…,"expires_in":900,"token_type":"Bearer","scope":"kimi-code"}
+```
+
+The `client_id` is the public Kimi Code CLI client. **The refresh token
+rotates on every exchange**, so whoever refreshes must write the new pair
+back to `~/.kimi-code/credentials/kimi-code.json` atomically, in the same
+shape (`expires_at` = now + `expires_in`, epoch seconds), or the CLI's own
+copy dies. Verified: a natively refreshed token is accepted by `/usages`
+and by the CLI. `kimi -p ""` does not refresh (rejects the empty prompt
+before any network call). The TUI also sends `X-Msh-Platform` /
+`X-Msh-Version` / `X-Msh-Device-Id` headers; the exchange succeeded without
+them, so send only an honest `User-Agent`.
+
+**Policy:** refresh only when a reading is actually needed — a stale token
+means the CLI has not run, so nothing was spent and the last reading is
+still true until a window resets. See `core/` caching rules.
 
 **Endpoint.**
 
