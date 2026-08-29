@@ -80,6 +80,12 @@ func (s Store) Save(provider snapshot.Provider) error {
 	return nil
 }
 
+// Directory returns the directory where the store keeps provider cache and
+// refresh-coordination files.
+func (s Store) Directory() string {
+	return s.directory()
+}
+
 func (s Store) directory() string {
 	if s.Dir != "" {
 		return s.Dir

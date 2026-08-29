@@ -188,7 +188,9 @@ needed refresh briefly launches the Kimi CLI in a pseudo-terminal — from the
 home directory, because the TUI refuses untrusted folders — so Kimi can
 rotate and save its own credentials; the launch runs ahead of the fetch on its
 own 25-second budget. QuotaMon never rotates Kimi tokens itself or calls the
-token endpoint directly.
+token endpoint directly. A process-group deadline, exclusive refresh lock,
+verified orphan sweep, and ten-minute launch cap prevent stuck or repeated
+Kimi processes from accumulating.
 
 ## Waybar
 
