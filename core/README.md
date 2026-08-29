@@ -253,11 +253,15 @@ and never turns product breakdowns into additional windows.
 
 ### DeepInfra
 
-The live source reads the **`DEEPINFRA_KEY`** environment variable and sums
-month-to-date spend from `api.deepinfra.com/payment/{config,usage}`. DeepInfra
-is pay-as-you-go, so a `monthly_spend` percentage window appears only when the
+The live source reads the DeepInfra key (**`DEEPINFRA_KEY`** environment
+variable or `config.json` `deepinfra.api_key`) and fetches
+`api.deepinfra.com/payment/{config,usage,checklist}` concurrently. DeepInfra is
+pay-as-you-go, so a `monthly_spend` percentage window appears only when the
 account has a positive spending limit; otherwise it reports spend with no
-percentage.
+percentage. The prepaid balance from `/payment/checklist` is shown as the
+headline (negative `stripe_balance` is spendable funds, positive is owed), with
+month-to-date spend on the line below. Only the checklist's money/status
+fields are read — its postal-address and payment-method data is never retained.
 
 ### Kimi
 

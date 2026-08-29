@@ -130,6 +130,9 @@ type Credits struct {
 	Balance *string `json:"balance,omitempty"`
 	// Enabled reports whether spending the balance is currently enabled.
 	Enabled bool `json:"enabled"`
+	// Spend is provider-formatted money already spent in the current period,
+	// when a provider reports it separately from the balance.
+	Spend *string `json:"spend,omitempty"`
 }
 
 // Status is the v2 cross-language provider status object.

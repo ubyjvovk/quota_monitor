@@ -1,6 +1,7 @@
 package deepinfra
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -20,7 +21,9 @@ var observedAt = time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
 
 func TestNegativeLimitYieldsSpendOnlyWithNoWindow(t *testing.T) {
 	spent, periodEnd := fixtureReading(t)
-	provider := Snapshot(-1, false, spent, periodEnd, observedAt)
+	// Balance unknown (checklist unavailable) falls back to the spend-only
+	// reading exactly as before this ticket.
+	provider := Snapshot(-1, false, spent, periodEnd, observedAt, Balance{})
 
 	if provider.ID != ProviderID || provider.DisplayName != DisplayName || provider.Origin != snapshot.OriginLive {
 		t.Fatalf("Snapshot() metadata = %#v", provider)
@@ -39,7 +42,7 @@ func TestNegativeLimitYieldsSpendOnlyWithNoWindow(t *testing.T) {
 
 func TestPositiveLimitAddsAMonthlyWindowAtTheSpendPercentage(t *testing.T) {
 	spent, periodEnd := fixtureReading(t)
-	provider := Snapshot(20, true, spent, periodEnd, observedAt)
+	provider := Snapshot(20, true, spent, periodEnd, observedAt, Balance{})
 
 	if len(provider.Windows) != 1 {
 		t.Fatalf("Snapshot().Windows = %#v, want one monthly window", provider.Windows)
@@ -68,7 +71,7 @@ func TestLiveSourceHitsThePaymentPathsWithoutV1AndSendsTheBearer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var configRequests, usageRequests atomic.Int32
+	var configRequests, usageRequests, checklistRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			t.Errorf("request method = %s, want GET", request.Method)
@@ -91,6 +94,15 @@ func TestLiveSourceHitsThePaymentPathsWithoutV1AndSendsTheBearer(t *testing.T) {
 			_, _ = writer.Write(fixture)
 			return
 		}
+		if request.URL.Path == "/payment/checklist" {
+			checklistRequests.Add(1)
+			if request.URL.RawQuery != "" {
+				t.Errorf("checklist request query = %q, want none", request.URL.RawQuery)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"stripe_balance":-18.0,"suspended":false,"overdue_invoices":0.0}`))
+			return
+		}
 		t.Errorf("unexpected request path %q (endpoints must not be under /v1)", request.URL.Path)
 		http.NotFound(writer, request)
 	}))
@@ -104,16 +116,16 @@ func TestLiveSourceHitsThePaymentPathsWithoutV1AndSendsTheBearer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if configRequests.Load() != 1 || usageRequests.Load() != 1 {
-		t.Fatalf("request counts = config %d usage %d, want one each", configRequests.Load(), usageRequests.Load())
+	if configRequests.Load() != 1 || usageRequests.Load() != 1 || checklistRequests.Load() != 1 {
+		t.Fatalf("request counts = config %d usage %d checklist %d, want one each", configRequests.Load(), usageRequests.Load(), checklistRequests.Load())
 	}
 	if len(provider.Windows) != 1 || provider.Windows[0].UsedPercent != 38.75 {
 		t.Fatalf("Fetch() windows = %#v, want one monthly window at 38.75%%", provider.Windows)
 	}
-	assertSpendCredits(t, provider.Credits, false, "$7.75 this month")
+	assertPrepaidCredits(t, provider.Credits, true, "$18.00", true, "$7.75 this month")
 }
 
-func TestLiveSourceFetchesConfigAndUsageConcurrently(t *testing.T) {
+func TestLiveSourceFetchesAllThreeEndpointsConcurrently(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		time.Sleep(300 * time.Millisecond)
 		writer.Header().Set("Content-Type", "application/json")
@@ -122,6 +134,8 @@ func TestLiveSourceFetchesConfigAndUsageConcurrently(t *testing.T) {
 			_, _ = writer.Write([]byte(`{"limit":20.0}`))
 		case "/payment/usage":
 			_, _ = writer.Write([]byte(`{"months":[{"total_cost":775}]}`))
+		case "/payment/checklist":
+			_, _ = writer.Write([]byte(`{"stripe_balance":-18.0}`))
 		default:
 			http.NotFound(writer, request)
 		}
@@ -143,8 +157,12 @@ func TestLiveSourceFetchesConfigAndUsageConcurrently(t *testing.T) {
 }
 
 func TestLiveSourceKeepsSpendWhenConfigFails(t *testing.T) {
+	// Both the ceiling and the balance are unknown here, so only usage remains;
+	// the spending-limit message is the one shown because config is the final
+	// override, matching the pre-balance behaviour.
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/payment/config" {
+		switch request.URL.Path {
+		case "/payment/config", "/payment/checklist":
 			http.Error(writer, "unavailable", http.StatusInternalServerError)
 			return
 		}
@@ -240,6 +258,155 @@ func TestLiveSourceMapsAuthenticationFailuresToUnauthorized(t *testing.T) {
 				t.Fatalf("Fetch() message = %q, want DEEPINFRA_KEY action", err)
 			}
 		})
+	}
+}
+
+func TestStripeBalanceMappings(t *testing.T) {
+	tests := []struct {
+		name        string
+		balance     Balance
+		wantCredits bool
+		wantBalance string
+	}{
+		{
+			name:        "negative balance is prepaid headroom",
+			balance:     Balance{Known: true, Stripe: -18.0},
+			wantCredits: true, wantBalance: "$18.00",
+		},
+		{
+			name:        "positive balance is money owed",
+			balance:     Balance{Known: true, Stripe: 5.0},
+			wantCredits: false, wantBalance: "$5.00 owed",
+		},
+		{
+			name:        "zero balance reports no credits",
+			balance:     Balance{Known: true, Stripe: 0},
+			wantCredits: false, wantBalance: "$0.00",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provider := Snapshot(-1, false, 7.75, nil, observedAt, test.balance)
+			assertPrepaidCredits(t, provider.Credits, test.wantCredits, test.wantBalance, true, "$7.75 this month")
+			if len(provider.Windows) != 0 || provider.Status != snapshot.OK() {
+				t.Fatalf("Snapshot() = windows %#v status %#v, want none and ok", provider.Windows, provider.Status)
+			}
+		})
+	}
+}
+
+func TestSuspendedAndOverdueInvoicesSetActionableStatus(t *testing.T) {
+	suspended := Snapshot(-1, false, 7.75, nil, observedAt, Balance{Known: true, Stripe: -18.0, Suspended: true, SuspendReason: "unpaid balance"})
+	assertPrepaidCredits(t, suspended.Credits, true, "$18.00", false, "$7.75 this month")
+	if suspended.Status.State != "failed" || !strings.Contains(suspended.Status.Message, "suspended") || !strings.Contains(suspended.Status.Message, "unpaid balance") {
+		t.Fatalf("Snapshot().Status = %#v, want failed with suspend reason", suspended.Status)
+	}
+
+	overdue := Snapshot(-1, false, 7.75, nil, observedAt, Balance{Known: true, OverdueInvoices: 2})
+	if overdue.Status.State != "needsSetup" || !strings.Contains(overdue.Status.Message, "overdue") || !strings.Contains(overdue.Status.Message, "2") {
+		t.Fatalf("Snapshot().Status = %#v, want needsSetup with overdue count", overdue.Status)
+	}
+}
+
+func TestLiveSourceCombinesPrepaidBalanceAndSpend(t *testing.T) {
+	usage, err := fixtures.Load("deepinfra-usage.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checklist, err := fixtures.Load("deepinfra-checklist.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/payment/config":
+			_, _ = writer.Write([]byte(`{"limit":-1.0}`))
+		case "/payment/usage":
+			_, _ = writer.Write(usage)
+		case "/payment/checklist":
+			_, _ = writer.Write(checklist)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	provider, err := (LiveSource{BaseURL: server.URL, Client: server.Client(), Key: func() string { return "tok" }}).Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPrepaidCredits(t, provider.Credits, true, "$18.00", true, "$7.75 this month")
+	if len(provider.Windows) != 0 {
+		t.Fatalf("Fetch().Windows = %#v, want none with a negative limit", provider.Windows)
+	}
+	if provider.Status != snapshot.OK() {
+		t.Fatalf("Fetch().Status = %#v, want ok", provider.Status)
+	}
+}
+
+func TestLiveSourceKeepsSpendOnlyWhenChecklistFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/payment/config":
+			_, _ = writer.Write([]byte(`{"limit":-1.0}`))
+		case "/payment/usage":
+			_, _ = writer.Write([]byte(`{"months":[{"total_cost":775}]}`))
+		case "/payment/checklist":
+			http.Error(writer, "boom", http.StatusInternalServerError)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	provider, err := (LiveSource{BaseURL: server.URL, Client: server.Client(), Key: func() string { return "tok" }}).Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSpendCredits(t, provider.Credits, true, "$7.75 this month")
+	wantMessage := "Balance unavailable — DeepInfra /payment/checklist: " + source.ForHTTP(http.StatusInternalServerError, DisplayName).Error()
+	if provider.Status != snapshot.NeedsSetup(wantMessage) {
+		t.Fatalf("Fetch().Status = %#v, want NeedsSetup(%q)", provider.Status, wantMessage)
+	}
+}
+
+func TestChecklistPiiNeverAppearsInEncodedSnapshot(t *testing.T) {
+	root, err := jsonx.Parse([]byte(`{"stripe_balance":-18.0,"suspended":false,"overdue_invoices":0.0,"billing_address_info":{"line1":"1 Main St","postal_code":"90210"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := Snapshot(-1, false, 7.75, nil, observedAt, balanceFromChecklist(root))
+	encoded, err := (snapshot.Snapshot{
+		Providers:   []snapshot.Provider{provider},
+		GeneratedAt: snapshot.Time{Time: observedAt},
+	}).Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"line1", "postal_code", "Main"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("encoded snapshot contains %q from billing_address_info:\n%s", forbidden, encoded)
+		}
+	}
+}
+
+// assertPrepaidCredits checks a prepaid-balance credits contract: a spendable
+// balance distinct from the month-to-date spend.
+func assertPrepaidCredits(t *testing.T, credits *snapshot.Credits, hasCredits bool, balance string, enabled bool, spend string) {
+	t.Helper()
+	if credits == nil {
+		t.Fatal("Snapshot().Credits is nil")
+	}
+	if credits.HasCredits != hasCredits || credits.Unlimited || credits.Enabled != enabled {
+		t.Fatalf("Snapshot().Credits = %#v, want HasCredits %v Unlimited false Enabled %v", credits, hasCredits, enabled)
+	}
+	if credits.Balance == nil || *credits.Balance != balance {
+		t.Fatalf("Snapshot().Credits.Balance = %v, want %q", credits.Balance, balance)
+	}
+	if credits.Spend == nil || *credits.Spend != spend {
+		t.Fatalf("Snapshot().Credits.Spend = %v, want %q", credits.Spend, spend)
 	}
 }
 

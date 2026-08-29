@@ -39,13 +39,7 @@ func renderTableProvider(provider snapshot.Provider, now time.Time, colorEnabled
 		lines = append(lines, renderTableWindow(window, now, colorEnabled))
 	}
 	if provider.Credits != nil {
-		if detail, ok := tableCredits(*provider.Credits); ok {
-			label := "credits"
-			if provider.Credits.Unlimited && provider.Credits.Balance != nil {
-				label = "spend"
-			}
-			lines = append(lines, "  "+padTableCell(label, 9)+" "+detail)
-		}
+		lines = append(lines, creditLines(*provider.Credits)...)
 	}
 	if provider.Status.State != "ok" {
 		lines = append(lines, "  !  "+provider.Status.Message)
@@ -118,6 +112,29 @@ func truncateAndPadTableCell(value string, width int) string {
 		value = string(runes[:width-1]) + "…"
 	}
 	return padTableCell(value, width)
+}
+
+// creditLines renders the provider credit rows shared by the table and the
+// waybar tooltip. A distinct prepaid balance and month-to-date spend appear as
+// two rows (balance, then spend); a provider that reports only spend keeps the
+// single spend row so the balance-derived spend is never doubled.
+func creditLines(credits snapshot.Credits) []string {
+	if credits.Spend != nil && !credits.Unlimited {
+		lines := []string{}
+		if detail, ok := tableCredits(credits); ok {
+			lines = append(lines, "  "+padTableCell("balance", 9)+" "+detail)
+		}
+		lines = append(lines, "  "+padTableCell("spend", 9)+" "+*credits.Spend)
+		return lines
+	}
+	if detail, ok := tableCredits(credits); ok {
+		label := "credits"
+		if credits.Unlimited && credits.Balance != nil {
+			label = "spend"
+		}
+		return []string{"  " + padTableCell(label, 9) + " " + detail}
+	}
+	return nil
 }
 
 // tableCredits omits disabled credits whose balance is absent, blank, or

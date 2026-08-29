@@ -85,6 +85,31 @@ DeepInfra    pay-as-you-go  live · just now
 	}
 }
 
+func TestRenderTableShowsBalanceAndSpendForPrepaidDeepInfra(t *testing.T) {
+	now := time.Date(2026, 8, 29, 19, 0, 0, 0, time.UTC)
+	payAsYouGoPlan := "pay-as-you-go"
+	balance := "$18.00"
+	spend := "$7.75 this month"
+	input := snapshot.Snapshot{Providers: []snapshot.Provider{
+		{
+			ID: "deepinfra", DisplayName: "DeepInfra", Plan: &payAsYouGoPlan,
+			Credits:    &snapshot.Credits{HasCredits: true, Unlimited: false, Balance: &balance, Enabled: true, Spend: &spend},
+			ObservedAt: snapshot.Time{Time: now}, Origin: snapshot.OriginLive, Status: snapshot.OK(),
+		},
+	}}
+
+	got := renderTable(input, now)
+	if !strings.Contains(got, "  balance   $18.00 remaining") {
+		t.Fatalf("renderTable() missing balance row:\n%s", got)
+	}
+	if !strings.Contains(got, "  spend     $7.75 this month") {
+		t.Fatalf("renderTable() missing spend row:\n%s", got)
+	}
+	if strings.Count(got, "$7.75 this month") != 1 {
+		t.Fatalf("renderTable() shows spend %d times, want exactly once:\n%s", strings.Count(got, "$7.75 this month"), got)
+	}
+}
+
 func TestRenderTableWindowShowsResetAndTruncatesLabelsByRunes(t *testing.T) {
 	now := time.Date(2026, 8, 29, 19, 0, 0, 0, time.UTC)
 	window := snapshot.Window{
