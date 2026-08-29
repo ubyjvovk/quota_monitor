@@ -15,8 +15,9 @@ public enum ConsoleReport {
     /// Stable pretty-printed JSON keyed by provider id.
     ///
     /// Each provider object carries `plan`, `origin`, `observed_at` (ISO-8601),
-    /// `status`, and a `windows` array of `{id, label, used_percent, resets_at}`.
-    /// `used_percent` is JSON `null` when the window has no current reading.
+    /// `status`, `credits`, and a `windows` array of
+    /// `{id, label, used_percent, resets_at}`. `used_percent` is JSON `null`
+    /// when the window has no current reading.
     public static func renderJSON(_ snapshots: [ProviderSnapshot], asOf: Date) throws -> String {
         var payload: [String: ProviderPayload] = [:]
         payload.reserveCapacity(snapshots.count)
@@ -42,8 +43,8 @@ public enum ConsoleReport {
             lines.append(windowLine(window, asOf: now))
         }
 
-        if let credits = snapshot.credits {
-            lines.append(creditsLine(credits))
+        if let credits = snapshot.credits, let line = creditsLine(credits) {
+            lines.append(line)
         }
 
         if let message = snapshot.status.message {
@@ -79,12 +80,20 @@ public enum ConsoleReport {
         return "  \(label)\(percent)  resets in \(QuotaFormat.countdown(remaining))"
     }
 
-    private static func creditsLine(_ credits: Credits) -> String {
+    private static func creditsLine(_ credits: Credits) -> String? {
         let detail: String
         if credits.unlimited {
             detail = "unlimited"
-        } else if let balance = credits.balance {
+        } else if credits.enabled, let balance = credits.balance {
             detail = "\(balance) remaining"
+        } else if !credits.enabled,
+                  let balance = credits.balance,
+                  balance != "0",
+                  balance != "0.00"
+        {
+            detail = "\(balance) (not enabled)"
+        } else if !credits.enabled {
+            return nil
         } else {
             detail = "— remaining"
         }
@@ -104,6 +113,7 @@ public enum ConsoleReport {
         var origin: String
         var observed_at: Date
         var status: String?
+        var credits: CreditsPayload?
         var windows: [WindowPayload]
 
         init(_ snapshot: ProviderSnapshot, asOf now: Date) {
@@ -111,11 +121,12 @@ public enum ConsoleReport {
             self.origin = snapshot.origin.rawValue
             self.observed_at = snapshot.observedAt
             self.status = snapshot.status.message
+            self.credits = snapshot.credits.map(CreditsPayload.init)
             self.windows = snapshot.sortedWindows(asOf: now).map { WindowPayload($0, asOf: now) }
         }
 
         enum CodingKeys: String, CodingKey {
-            case plan, origin, observed_at, status, windows
+            case plan, origin, observed_at, status, credits, windows
         }
 
         func encode(to encoder: Encoder) throws {
@@ -124,7 +135,34 @@ public enum ConsoleReport {
             try container.encode(origin, forKey: .origin)
             try container.encode(observed_at, forKey: .observed_at)
             try container.encode(status, forKey: .status)
+            try container.encode(credits, forKey: .credits)
             try container.encode(windows, forKey: .windows)
+        }
+    }
+
+    private struct CreditsPayload: Encodable {
+        var has_credits: Bool
+        var unlimited: Bool
+        var balance: String?
+        var enabled: Bool
+
+        init(_ credits: Credits) {
+            self.has_credits = credits.hasCredits
+            self.unlimited = credits.unlimited
+            self.balance = credits.balance
+            self.enabled = credits.enabled
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case has_credits, unlimited, balance, enabled
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(has_credits, forKey: .has_credits)
+            try container.encode(unlimited, forKey: .unlimited)
+            try container.encode(balance, forKey: .balance)
+            try container.encode(enabled, forKey: .enabled)
         }
     }
 

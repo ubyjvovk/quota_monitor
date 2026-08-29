@@ -90,6 +90,7 @@ struct CodexLiveConfigurationTests {
     #expect(snapshot.displayName == "ChatGPT")
     #expect(snapshot.plan == "plus")
     #expect(snapshot.origin == .local)
+    #expect(snapshot.credits?.enabled == false)
 
     // The file holds two rate_limit records (5% then 18%); the later one wins.
     let primary = try #require(snapshot.windows.first { $0.id == "primary" })
@@ -231,7 +232,10 @@ struct CodexLiveConfigurationTests {
 
     let excludedIDs = ["nimbus_quill", "tangelo", "iguana_necktie", "seven_day_opus"]
     #expect(snapshot.windows.allSatisfy { !excludedIDs.contains($0.id) })
-    #expect(snapshot.credits?.balance == "20.00")
+    let credits = try #require(snapshot.credits)
+    #expect(credits.enabled == false)
+    #expect(credits.balance == "20.00")
+    #expect(credits.hasCredits == false)
 }
 
 @Test func claudeFallsBackToLegacyWindowsWhenLimitsAreAbsent() throws {
@@ -433,6 +437,13 @@ private func stubSnapshot(usedPercent: Double, origin: SnapshotOrigin) -> Provid
 
 // MARK: - Store
 
+@Test func creditsWithoutEnabledDecodeAsEnabledForPersistedSnapshots() throws {
+    let json = #"{"hasCredits":true,"unlimited":false,"balance":"12.50"}"#
+    let credits = try JSONDecoder().decode(Credits.self, from: Data(json.utf8))
+
+    #expect(credits.enabled == true)
+}
+
 @Test func snapshotSurvivesARoundTripThroughTheStore() throws {
     let directory = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("quota-store-\(UUID().uuidString)")
@@ -456,6 +467,21 @@ private func stubSnapshot(usedPercent: Double, origin: SnapshotOrigin) -> Provid
     let restored = try QuotaSnapshot.decode(from: try original.encoded())
     #expect(restored == original)
     #expect(restored.providers[0].windows[0].resetsAt == primaryReset)
+}
+
+@Test func disabledCreditsSurviveAPersistedSnapshotRoundTrip() throws {
+    let provider = ProviderSnapshot(
+        id: Claude.providerID, displayName: Claude.displayName, plan: "max",
+        credits: Credits(
+            hasCredits: false, unlimited: false, balance: "20.00", enabled: false
+        ),
+        observedAt: beforeAll, origin: .live
+    )
+    let original = QuotaSnapshot(providers: [provider], generatedAt: beforeAll)
+
+    let restored = try QuotaSnapshot.decode(from: original.encoded())
+
+    #expect(restored.providers.first?.credits == provider.credits)
 }
 
 // MARK: - Pace
@@ -891,6 +917,65 @@ private let oneDayTwentyOneHours = reportNow.addingTimeInterval(86_400 + 21 * 36
 
     #expect(text.contains("cached"))
     #expect(text.contains("15d ago"))
+}
+
+@Test func consoleReportLabelsDisabledClaudeCreditsHonestly() throws {
+    let root = try JSONValue.parse(Data(contentsOf: fixture("claude-usage-live", "json")))
+    let snapshot = try #require(
+        Claude.snapshot(fromRateLimits: root, observedAt: reportNow, origin: .live)
+    )
+
+    let text = ConsoleReport.render([snapshot], asOf: reportNow)
+
+    #expect(text.contains("20.00 (not enabled)"))
+    #expect(!text.contains("20.00 remaining"))
+}
+
+@Test func consoleReportOmitsDisabledZeroCredits() {
+    let snapshot = ProviderSnapshot(
+        id: Codex.providerID, displayName: Codex.displayName,
+        credits: Credits(
+            hasCredits: false, unlimited: false, balance: "0", enabled: false
+        ),
+        observedAt: reportNow, origin: .local
+    )
+
+    let text = ConsoleReport.render([snapshot], asOf: reportNow)
+
+    #expect(!text.contains("credits"))
+}
+
+@Test func consoleReportRendersUnlimitedRegardlessOfBalance() {
+    let snapshot = ProviderSnapshot(
+        id: Codex.providerID, displayName: Codex.displayName,
+        credits: Credits(
+            hasCredits: false, unlimited: true, balance: "20.00", enabled: false
+        ),
+        observedAt: reportNow, origin: .live
+    )
+
+    let text = ConsoleReport.render([snapshot], asOf: reportNow)
+
+    #expect(text.contains("credits         unlimited"))
+}
+
+@Test func consoleReportJSONIncludesWhetherCreditsAreEnabled() throws {
+    let snapshot = ProviderSnapshot(
+        id: Claude.providerID, displayName: Claude.displayName,
+        credits: Credits(
+            hasCredits: false, unlimited: false, balance: "20.00", enabled: false
+        ),
+        observedAt: reportNow, origin: .live
+    )
+
+    let json = try ConsoleReport.renderJSON([snapshot], asOf: reportNow)
+    let root = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+    let provider = try #require(root?[Claude.providerID] as? [String: Any])
+    let credits = try #require(provider["credits"] as? [String: Any])
+
+    #expect((credits["enabled"] as? NSNumber)?.boolValue == false)
+    #expect((credits["has_credits"] as? NSNumber)?.boolValue == false)
+    #expect(credits["balance"] as? String == "20.00")
 }
 
 @Test func consoleReportJSONRoundTripsUsedPercentWithNullForAResetWindow() throws {

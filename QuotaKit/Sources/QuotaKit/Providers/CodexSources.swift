@@ -50,10 +50,13 @@ public enum Codex {
 
         var credits: Credits?
         if let c = limits["credits"] {
+            let hasCredits = c.firstValue(forAnyKey: ["has_credits", "hasCredits"])?.bool ?? false
+            let unlimited = c["unlimited"]?.bool ?? false
             credits = Credits(
-                hasCredits: c.firstValue(forAnyKey: ["has_credits", "hasCredits"])?.bool ?? false,
-                unlimited: c["unlimited"]?.bool ?? false,
-                balance: c["balance"]?.string
+                hasCredits: hasCredits,
+                unlimited: unlimited,
+                balance: c["balance"]?.string,
+                enabled: hasCredits || unlimited
             )
         }
 

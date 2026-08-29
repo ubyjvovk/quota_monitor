@@ -123,6 +123,7 @@ public enum Claude {
 
         let credits: Credits?
         if let spend = limits["spend"] {
+            let enabled = spend["enabled"]?.bool ?? true
             let limit = spend["limit"]
             let used = spend["used"]
             let limitMinor = limit?["amount_minor"]?.double
@@ -147,9 +148,10 @@ public enum Claude {
             }
 
             credits = Credits(
-                hasCredits: (remainingMinor ?? 0) > 0,
+                hasCredits: enabled && (remainingMinor ?? 0) > 0,
                 unlimited: false,
-                balance: balance
+                balance: balance,
+                enabled: enabled
             )
         } else {
             credits = nil
