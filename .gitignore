@@ -14,3 +14,6 @@ xcuserdata/
 
 # Secrets — holds DEEPINFRA_KEY; masked from tigerteam workers by worker.sb
 .env
+
+# Go core build output (make matrix)
+core/bin/

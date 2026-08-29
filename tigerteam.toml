@@ -6,7 +6,7 @@
 # own nested `sandbox-exec`, and macOS refuses to nest Seatbelt sandboxes, so a
 # worker running under sandbox_profile fails with "sandbox_apply: Operation not
 # permitted" without it. The outer Seatbelt profile is the real boundary.
-test_cmd = "swift test --disable-sandbox --package-path QuotaKit"
+test_cmd = "bash scripts/test-all.sh"
 # verify_cmds = ["bash .tigerteam/scripts/run-tests.sh"]
 # staging = false
 # quiet_load = 8.0

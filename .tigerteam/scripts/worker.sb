@@ -82,6 +82,10 @@
   (subpath (string-append (param "HOMEDIR") "/Library/org.swift.swiftpm"))
   (subpath (string-append (param "HOMEDIR") "/Library/Caches/org.swift.swiftpm"))
   (subpath (string-append (param "HOMEDIR") "/Library/Developer"))
+  ;; Go toolchain: build cache + module cache/GOPATH. The core is stdlib-only,
+  ;; so the module cache stays empty, but `go` still stats and creates it.
+  (subpath (string-append (param "HOMEDIR") "/Library/Caches/go-build"))
+  (subpath (string-append (param "HOMEDIR") "/go"))
   ;; Login keychain db files: claude login_auth reads credentials via the
   ;; legacy SecKeychain path, which memory-maps the db IN-PROCESS (securityd
   ;; only mediates unlock/ACL). The files are encrypted at rest and per-item
@@ -132,6 +136,10 @@
   (subpath (string-append (param "HOMEDIR") "/Library/org.swift.swiftpm"))
   (subpath (string-append (param "HOMEDIR") "/Library/Caches/org.swift.swiftpm"))
   (subpath (string-append (param "HOMEDIR") "/Library/Developer"))
+  ;; Go toolchain: build cache + module cache/GOPATH. The core is stdlib-only,
+  ;; so the module cache stays empty, but `go` still stats and creates it.
+  (subpath (string-append (param "HOMEDIR") "/Library/Caches/go-build"))
+  (subpath (string-append (param "HOMEDIR") "/go"))
   ;; keychain token refresh rewrites the db in place (see read note above).
   (subpath (string-append (param "HOMEDIR") "/Library/Keychains"))
   (literal "/dev/null")

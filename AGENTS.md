@@ -11,8 +11,10 @@ some CLI already writes) and a **live** source (an authenticated HTTP endpoint);
 reading with an explanatory status. Everything normalises to `ProviderSnapshot`
 → `[QuotaWindow]` with a `usedPercent` and a `resetsAt`.
 
-**Current focus is the console tool `quotactl`.** The macOS menu-bar app and
-widget are ON HOLD — the human is reworking their UI separately.
+**Current focus is the Go core port (`core/`) — read `GO-PORT.md`, then
+`PROVIDERS.md`.** The Swift `QuotaKit` fetchers are frozen (bug-fix only) and
+serve as the reference semantics; `quotactl` is the parity oracle. The macOS
+menu-bar app and widget are ON HOLD.
 
 ## Layout
 - `QuotaKit/Sources/QuotaKit/Providers/` — per-provider sources. **Most work lands here.**
@@ -26,6 +28,22 @@ widget are ON HOLD — the human is reworking their UI separately.
   They are not built by the test command; changes there cannot be verified and
   will be rejected.
 - `QuotaKit/.build/` — generated. Never edit, never commit.
+
+## Go core (`core/`)
+- Module `quotamon`, Go 1.27, **stdlib only, no cgo**. `GOPROXY=off` in the
+  sandbox — a `go get` fails. `go vet` runs as part of the test command.
+- Layout: `cmd/quotamon/` (CLI), `internal/snapshot/` (model + JSON contract),
+  `internal/source/` (Source interface, Error kinds = reporting priority),
+  `internal/jsonx/` (explicit-path JSON helpers — **no recursive key search**),
+  `internal/providers/<name>/`, `internal/fixtures/` (loads the shared Swift
+  fixtures by relative path).
+- JSON contract: timestamps RFC 3339 UTC with **no fractional seconds**
+  (Swift's decoder rejects them); `windows` is always an array; status is
+  `{"state":"ok"|"needsSetup"|"failed","message"?}`.
+- Anything that execs (`security`, `codex`) or does HTTP sits behind a func
+  field / `*http.Client` with a working default; tests inject `httptest` or a
+  stub and never touch `$HOME`, the Keychain, the network, or a subprocess.
+- Table-driven tests, `t.Run` per case, names that read as sentences.
 
 ## Conventions
 - Swift 6 with strict concurrency. Anything crossing an `async` boundary is
@@ -49,6 +67,8 @@ widget are ON HOLD — the human is reworking their UI separately.
 
 ## Commands
 - Tests: `bash .tigerteam/scripts/run-tests.sh` — the ONLY way to run tests.
+  It runs `scripts/test-all.sh`: the Swift suite, then `go vet` + `go test`
+  in `core/` once `core/go.mod` exists.
 - Run the console tool by hand:
   `swift run --disable-sandbox --package-path QuotaKit quotactl`
 
