@@ -2,6 +2,8 @@ package deepinfra
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -17,6 +19,8 @@ import (
 // design, NOT under /v1 — see PROVIDERS.md.
 const defaultBaseURL = "https://api.deepinfra.com"
 
+const defaultCallTimeout = 8 * time.Second
+
 // keyEnv is the environment fallback for the DeepInfra API key. The registry
 // injects a config-backed key first and never parses the repo's masked .env.
 const keyEnv = "DEEPINFRA_KEY"
@@ -27,6 +31,8 @@ type LiveSource struct {
 	BaseURL string
 	// Client performs the HTTP requests and defaults to a client with a 15-second timeout.
 	Client *http.Client
+	// CallTimeout limits each payment API request independently and defaults to 8 seconds.
+	CallTimeout time.Duration
 	// Key returns the DeepInfra API key and defaults to reading DEEPINFRA_KEY from the environment.
 	Key func() string
 }
@@ -40,9 +46,10 @@ func (LiveSource) DisplayName() string { return DisplayName }
 // Origin identifies this source as live.
 func (LiveSource) Origin() snapshot.Origin { return snapshot.OriginLive }
 
-// Fetch queries DeepInfra's spending-limit config and month-to-date usage, then
-// normalises them into a provider reading. An empty key is a setup problem, not
-// a network failure, so it is reported as NotConfigured without any HTTP call.
+// Fetch queries DeepInfra's spending-limit config and month-to-date usage in
+// parallel because either endpoint can otherwise consume most of the caller's
+// refresh budget. An empty key is a setup problem, not a network failure, so it
+// is reported as NotConfigured without any HTTP call.
 func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	keyProvider := s.Key
 	if keyProvider == nil {
@@ -61,24 +68,48 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-
-	config, err := s.fetchJSON(ctx, baseURL, client, key, "/payment/config")
-	if err != nil {
-		return snapshot.Provider{}, err
+	callTimeout := s.CallTimeout
+	if callTimeout <= 0 {
+		callTimeout = defaultCallTimeout
 	}
+
+	type result struct {
+		value any
+		err   error
+	}
+	configResult := make(chan result, 1)
+	usageResult := make(chan result, 1)
+	fetch := func(path string, output chan<- result) {
+		callContext, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		value, err := s.fetchJSON(callContext, baseURL, client, key, path)
+		output <- result{value: value, err: err}
+	}
+	go fetch("/payment/config", configResult)
+	go fetch("/payment/usage?from=current", usageResult)
+
+	configResponse := <-configResult
+	usageResponse := <-usageResult
+	if usageResponse.err != nil {
+		if isUnauthorized(configResponse.err) && !isUnauthorized(usageResponse.err) {
+			return snapshot.Provider{}, configResponse.err
+		}
+		return snapshot.Provider{}, usageResponse.err
+	}
+
+	config := configResponse.value
 	// A missing or absent limit means no spending ceiling, never a conversation
 	// into a percentage.
 	limitUSD := -1.0
-	if value, found := jsonx.Get(config, "limit"); found {
-		if limit, valid := jsonx.Float(value); valid {
-			limitUSD = limit
+	if configResponse.err == nil {
+		if value, found := jsonx.Get(config, "limit"); found {
+			if limit, valid := jsonx.Float(value); valid {
+				limitUSD = limit
+			}
 		}
 	}
 
-	usage, err := s.fetchJSON(ctx, baseURL, client, key, "/payment/usage?from=current")
-	if err != nil {
-		return snapshot.Provider{}, err
-	}
+	usage := usageResponse.value
 	months, found := jsonx.Get(usage, "months")
 	if !found {
 		return snapshot.Provider{}, source.Errorf(source.Malformed, "Unrecognised response from DeepInfra usage endpoint")
@@ -105,7 +136,16 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 		}
 	}
 
-	return Snapshot(limitUSD, limitUSD > 0, spentUSD, periodEnd, time.Now()), nil
+	provider := Snapshot(limitUSD, limitUSD > 0, spentUSD, periodEnd, time.Now())
+	if configResponse.err != nil {
+		provider.Status = snapshot.NeedsSetup(fmt.Sprintf("Spending limit unknown — DeepInfra /payment/config: %v", configResponse.err))
+	}
+	return provider, nil
+}
+
+func isUnauthorized(err error) bool {
+	var sourceError *source.Error
+	return errors.As(err, &sourceError) && sourceError.Kind == source.Unauthorized
 }
 
 // fetchJSON performs one Authenticated GET and returns the decoded JSON body.
@@ -120,6 +160,9 @@ func (s LiveSource) fetchJSON(ctx context.Context, baseURL string, client *http.
 
 	response, err := client.Do(request)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, source.Errorf(source.Transport, "DeepInfra is slow to answer (>8 s) — will retry next refresh")
+		}
 		return nil, source.Errorf(source.Transport, "Could not reach DeepInfra payment endpoint: %v", err)
 	}
 	defer response.Body.Close()

@@ -113,6 +113,90 @@ func TestLiveSourceHitsThePaymentPathsWithoutV1AndSendsTheBearer(t *testing.T) {
 	assertSpendCredits(t, provider.Credits, false, "$7.75 this month")
 }
 
+func TestLiveSourceFetchesConfigAndUsageConcurrently(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/payment/config":
+			_, _ = writer.Write([]byte(`{"limit":20.0}`))
+		case "/payment/usage":
+			_, _ = writer.Write([]byte(`{"months":[{"total_cost":775}]}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	started := time.Now()
+	_, err := (LiveSource{
+		BaseURL: server.URL,
+		Client:  server.Client(),
+		Key:     func() string { return "tok" },
+	}).Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
+		t.Fatalf("Fetch() took %s, want less than 500ms for parallel calls", elapsed)
+	}
+}
+
+func TestLiveSourceKeepsSpendWhenConfigFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/payment/config" {
+			http.Error(writer, "unavailable", http.StatusInternalServerError)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"months":[{"total_cost":775}]}`))
+	}))
+	defer server.Close()
+
+	provider, err := (LiveSource{
+		BaseURL: server.URL,
+		Client:  server.Client(),
+		Key:     func() string { return "tok" },
+	}).Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSpendCredits(t, provider.Credits, true, "$7.75 this month")
+	if len(provider.Windows) != 0 {
+		t.Fatalf("Fetch().Windows = %#v, want none without a known limit", provider.Windows)
+	}
+	wantMessage := "Spending limit unknown — DeepInfra /payment/config: " + source.ForHTTP(http.StatusInternalServerError, DisplayName).Error()
+	if provider.Status != snapshot.NeedsSetup(wantMessage) {
+		t.Fatalf("Fetch().Status = %#v, want NeedsSetup(%q)", provider.Status, wantMessage)
+	}
+}
+
+func TestLiveSourceMapsPerCallDeadlineToSlowTransportError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/payment/usage" {
+			time.Sleep(300 * time.Millisecond)
+			_, _ = writer.Write([]byte(`{"months":[{"total_cost":775}]}`))
+			return
+		}
+		_, _ = writer.Write([]byte(`{"limit":20.0}`))
+	}))
+	defer server.Close()
+
+	_, err := (LiveSource{
+		BaseURL:     server.URL,
+		Client:      server.Client(),
+		CallTimeout: 100 * time.Millisecond,
+		Key:         func() string { return "tok" },
+	}).Fetch(context.Background())
+	var sourceError *source.Error
+	if !errors.As(err, &sourceError) || sourceError.Kind != source.Transport {
+		t.Fatalf("Fetch() error = %v, want Transport", err)
+	}
+	if !strings.Contains(err.Error(), "slow to answer") {
+		t.Fatalf("Fetch() message = %q, want slow-to-answer explanation", err)
+	}
+}
+
 func TestLiveSourceWithEmptyKeyMakesNoRequest(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -202,4 +286,3 @@ func jsonxMust(t *testing.T, root any, path ...string) any {
 	}
 	return value
 }
-
