@@ -530,6 +530,98 @@ private func atElapsed(_ fraction: Double) -> Date {
     #expect(credentials.plan == "pro")
 }
 
+// MARK: - Keychain lookup strategies
+
+private final class LookupInvocationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var invoked = false
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return invoked
+    }
+
+    func mark() {
+        lock.lock()
+        defer { lock.unlock() }
+        invoked = true
+    }
+}
+
+private func capturedQuotaError(_ operation: () throws -> Void) -> QuotaError? {
+    do {
+        try operation()
+        return nil
+    } catch let error as QuotaError {
+        return error
+    } catch {
+        return nil
+    }
+}
+
+private func isUnauthorized(_ error: QuotaError, message: String) -> Bool {
+    guard case .unauthorized(let actualMessage) = error else { return false }
+    return actualMessage == message
+}
+
+private func isNotConfigured(_ error: QuotaError) -> Bool {
+    if case .notConfigured = error { return true }
+    return false
+}
+
+@Test func securityCLIIsTheOnlyDefaultKeychainLookup() {
+    #expect(Keychain.defaultLookups.map(\.name) == ["security"])
+}
+
+@Test func keychainStopsAfterTheFirstSuccessfulLookup() throws {
+    let secondInvocation = LookupInvocationFlag()
+    let first = KeychainLookup(name: "first") { _ in Data("first".utf8) }
+    let second = KeychainLookup(name: "second") { _ in
+        secondInvocation.mark()
+        return Data("second".utf8)
+    }
+
+    let data = try Keychain.genericPassword(service: "test", lookups: [first, second])
+
+    #expect(String(decoding: data, as: UTF8.self) == "first")
+    #expect(secondInvocation.value == false)
+}
+
+@Test func keychainContinuesAfterFailureAndReturnsTheNextSuccess() throws {
+    let first = KeychainLookup(name: "first") { _ in
+        throw QuotaError.notConfigured("missing")
+    }
+    let second = KeychainLookup(name: "second") { _ in Data("second".utf8) }
+
+    let data = try Keychain.genericPassword(service: "test", lookups: [first, second])
+
+    #expect(String(decoding: data, as: UTF8.self) == "second")
+}
+
+@Test func keychainThrowsTheMostActionableFailureRegardlessOfLookupOrder() throws {
+    let unauthorized = KeychainLookup(name: "unauthorized") { _ in
+        throw QuotaError.unauthorized("denied")
+    }
+    let notConfigured = KeychainLookup(name: "not-configured") { _ in
+        throw QuotaError.notConfigured("missing")
+    }
+
+    for lookups in [[unauthorized, notConfigured], [notConfigured, unauthorized]] {
+        let error = try #require(capturedQuotaError {
+            _ = try Keychain.genericPassword(service: "test", lookups: lookups)
+        })
+        #expect(isUnauthorized(error, message: "denied"))
+    }
+}
+
+@Test func keychainRejectsAnEmptyLookupListAsNotConfigured() throws {
+    let error = try #require(capturedQuotaError {
+        _ = try Keychain.genericPassword(service: "test", lookups: [])
+    })
+    #expect(isNotConfigured(error))
+}
+
 // MARK: - Which failure gets reported
 
 @Test func aBrokenConfiguredSourceOutranksAnUnconfiguredFallback() async {
