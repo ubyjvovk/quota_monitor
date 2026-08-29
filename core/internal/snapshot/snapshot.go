@@ -3,6 +3,7 @@ package snapshot
 
 import (
 	"encoding/json"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -216,6 +217,24 @@ func (p Provider) TightestWindow(now time.Time) (Window, bool) {
 		}
 	}
 	return best, found
+}
+
+// SortedWindows returns a copy ordered from the most constrained current
+// reading to windows whose recorded reset has passed.
+func (p Provider) SortedWindows(now time.Time) []Window {
+	windows := append([]Window(nil), p.Windows...)
+	sort.SliceStable(windows, func(left, right int) bool {
+		leftPercent, leftCurrent := windows[left].CurrentUsedPercent(now)
+		rightPercent, rightCurrent := windows[right].CurrentUsedPercent(now)
+		if leftCurrent != rightCurrent {
+			return leftCurrent
+		}
+		if leftCurrent && leftPercent != rightPercent {
+			return leftPercent > rightPercent
+		}
+		return kindRank(windows[left].Kind) < kindRank(windows[right].Kind)
+	})
+	return windows
 }
 
 func kindRank(kind Kind) int {

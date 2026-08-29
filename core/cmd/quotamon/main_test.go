@@ -68,6 +68,50 @@ func TestSnapshotCommandPrintsFetchedProvidersAndUsesWindowExitStatus(t *testing
 	}
 }
 
+func TestDefaultCommandPrintsTableAndUsesWindowExitStatus(t *testing.T) {
+	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
+	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
+	configured := []hybrid.Provider{{
+		ID: "claude", DisplayName: "Claude",
+		Local: commandStubSource{id: "claude", displayName: "Claude", origin: snapshot.OriginLocal, provider: provider},
+		Now:   func() time.Time { return now },
+	}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runWithFactory([]string{"--no-live"}, &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
+	if exit != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "Claude") || !strings.Contains(stdout.String(), "43%") {
+		t.Fatalf("run(--no-live) exit = %d, stdout = %q, stderr = %q", exit, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	exit = runWithFactory(nil, &stdout, &stderr, func() time.Time { return now }, fixedFactory(nil))
+	if exit != 1 {
+		t.Fatalf("empty table exit = %d, want 1", exit)
+	}
+}
+
+func TestJSONFlagIsAnAliasForSnapshot(t *testing.T) {
+	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
+	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
+	configured := []hybrid.Provider{{
+		ID: "claude", DisplayName: "Claude",
+		Local: commandStubSource{id: "claude", displayName: "Claude", origin: snapshot.OriginLocal, provider: provider},
+		Now:   func() time.Time { return now },
+	}}
+	var alias bytes.Buffer
+	var command bytes.Buffer
+	var stderr bytes.Buffer
+	if exit := runWithFactory([]string{"--json", "--no-live"}, &alias, &stderr, func() time.Time { return now }, fixedFactory(configured)); exit != 0 {
+		t.Fatalf("run(--json --no-live) exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if exit := runWithFactory([]string{"snapshot", "--no-live"}, &command, &stderr, func() time.Time { return now }, fixedFactory(configured)); exit != 0 {
+		t.Fatalf("run(snapshot --no-live) exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if alias.String() != command.String() {
+		t.Fatalf("--json output = %q, snapshot output = %q", alias.String(), command.String())
+	}
+}
+
 func TestWaybarCommandPrintsExactlyOneJSONLineWithFourKeys(t *testing.T) {
 	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
 	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
@@ -163,7 +207,6 @@ func TestHelpFormsListEveryCommandOnStandardOutput(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "no arguments", args: nil},
 		{name: "long help", args: []string{"--help"}},
 		{name: "short help", args: []string{"-h"}},
 		{name: "command help", args: []string{"snapshot", "--help"}},
@@ -194,6 +237,8 @@ func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 		{name: "unknown command flag", args: []string{"--unknown"}},
 		{name: "unknown subcommand flag", args: []string{"snapshot", "--unknown"}},
 		{name: "extra argument", args: []string{"waybar", "extra"}},
+		{name: "extra default flag", args: []string{"--no-live", "extra"}},
+		{name: "unknown JSON flag", args: []string{"--json", "--unknown"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

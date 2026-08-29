@@ -22,25 +22,40 @@ Run the commands from `core/`, or install the built `quotamon` binary on your
 `PATH`:
 
 ```sh
+quotamon [--no-live]
+quotamon --json [--no-live]
 quotamon snapshot [--no-live]
 quotamon waybar [--no-live]
 quotamon check [--no-live]
 ```
 
+The bare invocation fetches every provider and prints the human-readable table
+in registry order:
+
+```text
+Claude          Max    live · just now
+  5h                43%  resets in 2h 11m
+ChatGPT / Codex Plus   cached · 3m ago
+  Week              18%  resets in 6d 7h
+Grok            —      unavailable · just now
+  !  set GROK_API_KEY to enable live quota
+```
+
 `snapshot` fetches all providers concurrently, prefers usable live readings,
-and writes the normalised snapshot JSON. A failed live refresh falls back to a
-current local reading and labels it as cached. `waybar` performs the same
-resolved fetch and writes one line of custom-module JSON. `check` bypasses the
-hybrid merge, probes every enabled source independently, and reports its
-window count and plan or its actionable error kind. All commands cap the
-overall operation at ten seconds. `--no-live` guarantees that live endpoints,
-credentials, and subprocesses are skipped.
+and writes the normalised snapshot JSON; `--json` is an alias for it. A failed
+live refresh falls back to a current local reading and labels it as cached.
+`waybar` performs the same resolved fetch and writes one line of custom-module
+JSON. `check` bypasses the hybrid merge, probes every enabled source
+independently, and reports its window count and plan or its actionable error
+kind. All commands cap the overall operation at ten seconds. `--no-live`
+guarantees that live endpoints, credentials, and subprocesses are skipped.
 
 Exit codes are:
 
-- `0` when `snapshot` finds at least one provider window, when `waybar` or
-  `check` writes its output, or when help is requested;
-- `1` when `snapshot` finds no provider windows or output encoding fails;
+- `0` when the table or `snapshot` finds at least one provider window, when
+  `waybar` or `check` writes its output, or when help is requested;
+- `1` when the table or `snapshot` finds no provider windows, or when output
+  encoding fails;
 - `2` for an unknown command, flag, or extra argument.
 
 ## Waybar

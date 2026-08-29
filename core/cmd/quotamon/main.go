@@ -17,7 +17,9 @@ import (
 	"quotamon/internal/source"
 )
 
-const usageText = `Usage: quotamon <command> [--no-live]
+const usageText = `Usage: quotamon [--no-live]
+       quotamon --json [--no-live]
+       quotamon <command> [--no-live]
 
 Commands:
   snapshot  Print the normalized quota snapshot as JSON
@@ -57,6 +59,10 @@ func runWithFactory(args []string, stdout, stderr io.Writer, now func() time.Tim
 	defer cancel()
 
 	switch command {
+	case "table":
+		result := fetchAll(ctx, configured, now)
+		fmt.Fprintln(stdout, renderTable(result, result.GeneratedAt.Time))
+		return windowExitStatus(result)
 	case "snapshot":
 		result := fetchAll(ctx, configured, now)
 		encoded, err := result.Encode()
@@ -65,12 +71,7 @@ func runWithFactory(args []string, stdout, stderr io.Writer, now func() time.Tim
 			return 1
 		}
 		fmt.Fprintln(stdout, string(encoded))
-		for _, provider := range result.Providers {
-			if len(provider.Windows) > 0 {
-				return 0
-			}
-		}
-		return 1
+		return windowExitStatus(result)
 	case "waybar":
 		result := fetchAll(ctx, configured, now)
 		if err := json.NewEncoder(stdout).Encode(renderWaybar(result, result.GeneratedAt.Time)); err != nil {
@@ -88,12 +89,24 @@ func runWithFactory(args []string, stdout, stderr io.Writer, now func() time.Tim
 
 func parseArguments(args []string) (command string, liveEnabled, help, valid bool) {
 	if len(args) == 0 {
-		return "", true, true, true
+		return "table", true, false, true
 	}
 	for _, argument := range args {
 		if argument == "--help" || argument == "-h" {
 			return "", true, true, true
 		}
+	}
+	if len(args) == 1 && args[0] == "--no-live" {
+		return "table", false, false, true
+	}
+	if args[0] == "--json" {
+		if len(args) == 1 {
+			return "snapshot", true, false, true
+		}
+		if len(args) == 2 && args[1] == "--no-live" {
+			return "snapshot", false, false, true
+		}
+		return "", true, false, false
 	}
 	if args[0] != "snapshot" && args[0] != "waybar" && args[0] != "check" {
 		return "", true, false, false
@@ -105,6 +118,15 @@ func parseArguments(args []string) (command string, liveEnabled, help, valid boo
 		return args[0], false, false, true
 	}
 	return "", true, false, false
+}
+
+func windowExitStatus(result snapshot.Snapshot) int {
+	for _, provider := range result.Providers {
+		if len(provider.Windows) > 0 {
+			return 0
+		}
+	}
+	return 1
 }
 
 func fetchAll(ctx context.Context, providers []hybrid.Provider, now func() time.Time) snapshot.Snapshot {

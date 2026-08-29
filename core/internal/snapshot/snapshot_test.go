@@ -179,6 +179,31 @@ func TestTightestWindowIgnoresRolloverAndBreaksTiesByKind(t *testing.T) {
 	}
 }
 
+func TestSortedWindowsOrdersCurrentReadingsByUsageThenKindBeforeRollover(t *testing.T) {
+	now := time.Date(2026, 8, 29, 19, 0, 0, 0, time.UTC)
+	provider := snapshot.Provider{Windows: []snapshot.Window{
+		{ID: "rolled-session", Kind: snapshot.KindSession, UsedPercent: 99, ResetsAt: snapshotTime(now)},
+		{ID: "weekly-tie", Kind: snapshot.KindWeekly, UsedPercent: 50},
+		{ID: "monthly-high", Kind: snapshot.KindMonthly, UsedPercent: 75},
+		{ID: "session-tie", Kind: snapshot.KindSession, UsedPercent: 50},
+		{ID: "rolled-weekly", Kind: snapshot.KindWeekly, UsedPercent: 100, ResetsAt: snapshotTime(now.Add(-time.Minute))},
+	}}
+
+	got := provider.SortedWindows(now)
+	want := []string{"monthly-high", "session-tie", "weekly-tie", "rolled-session", "rolled-weekly"}
+	if len(got) != len(want) {
+		t.Fatalf("SortedWindows() returned %d windows, want %d", len(got), len(want))
+	}
+	for index := range want {
+		if got[index].ID != want[index] {
+			t.Fatalf("SortedWindows()[%d].ID = %q, want %q", index, got[index].ID, want[index])
+		}
+	}
+	if provider.Windows[0].ID != "rolled-session" {
+		t.Fatal("SortedWindows() mutated the provider's window order")
+	}
+}
+
 func TestUnavailableCreatesAnEmptyNeedsAttentionProvider(t *testing.T) {
 	observedAt := time.Date(2026, 8, 29, 19, 0, 0, 0, time.UTC)
 	got := snapshot.Unavailable("kimi", "Kimi", snapshot.NeedsSetup("sign in"), observedAt)
