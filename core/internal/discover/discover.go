@@ -58,7 +58,7 @@ func all(deps dependencies) []Finding {
 		discoverFile("codex", "ChatGPT", filepath.Join(deps.home, ".codex", "auth.json"), "~/.codex/auth.json", "run `codex login`", true),
 		discoverGrok(deps),
 		discoverDeepInfra(deps),
-		discoverFile("kimi", "Kimi", filepath.Join(deps.home, ".kimi-code", "credentials", "kimi-code.json"), "~/.kimi-code/credentials/kimi-code.json", "no quota API found — see PROVIDERS.md", false),
+		discoverFile("kimi", "Kimi", filepath.Join(deps.home, ".kimi-code", "credentials", "kimi-code.json"), "~/.kimi-code/credentials/kimi-code.json", "run `kimi` and sign in", true),
 	}
 }
 

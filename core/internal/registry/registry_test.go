@@ -9,6 +9,7 @@ import (
 	"quotamon/internal/providers/codex"
 	"quotamon/internal/providers/deepinfra"
 	"quotamon/internal/providers/grok"
+	"quotamon/internal/providers/kimi"
 	"quotamon/internal/registry"
 )
 
@@ -16,7 +17,7 @@ import (
 // leaving each provider's provider-specific settings at their defaults.
 func enabledConfig() config.Config {
 	providers := map[string]config.Provider{}
-	for _, id := range []string{claude.ProviderID, codex.ProviderID, grok.ProviderID, deepinfra.ProviderID} {
+	for _, id := range []string{claude.ProviderID, codex.ProviderID, grok.ProviderID, deepinfra.ProviderID, kimi.ProviderID} {
 		providers[id] = config.Provider{Enabled: true}
 	}
 	return config.Config{Version: 1, Providers: providers}
@@ -33,7 +34,7 @@ func TestAllReturnsOnlyEnabledProvidersInStableOrder(t *testing.T) {
 		Env:    func(string) string { return "" },
 	})
 
-	if len(providers) != 4 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID || providers[3].ID != deepinfra.ProviderID {
+	if len(providers) != 5 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID || providers[3].ID != deepinfra.ProviderID || providers[4].ID != kimi.ProviderID {
 		t.Fatalf("All() order = %#v", providers)
 	}
 	claudeLocal, ok := providers[0].Local.(claude.LocalSource)
@@ -59,6 +60,12 @@ func TestAllReturnsOnlyEnabledProvidersInStableOrder(t *testing.T) {
 	if _, ok := providers[3].Live.(deepinfra.LiveSource); !ok {
 		t.Fatalf("DeepInfra live = %T, want LiveSource", providers[3].Live)
 	}
+	if providers[4].Local != nil {
+		t.Fatalf("Kimi local = %T, want nil", providers[4].Local)
+	}
+	if _, ok := providers[4].Live.(kimi.LiveSource); !ok {
+		t.Fatalf("Kimi live = %T, want LiveSource", providers[4].Live)
+	}
 }
 
 func TestAllAppliesLivePolicyAcrossEnabledProviders(t *testing.T) {
@@ -66,8 +73,8 @@ func TestAllAppliesLivePolicyAcrossEnabledProviders(t *testing.T) {
 		Config: enabledConfig(),
 		LiveEnabled: func(id string) bool { return id != claude.ProviderID },
 	})
-	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled || !providers[3].LiveEnabled {
-		t.Fatalf("All() live policy = %v %v %v %v, want only Claude disabled", providers[0].LiveEnabled, providers[1].LiveEnabled, providers[2].LiveEnabled, providers[3].LiveEnabled)
+	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled || !providers[3].LiveEnabled || !providers[4].LiveEnabled {
+		t.Fatalf("All() live policy = %v %v %v %v %v, want only Claude disabled", providers[0].LiveEnabled, providers[1].LiveEnabled, providers[2].LiveEnabled, providers[3].LiveEnabled, providers[4].LiveEnabled)
 	}
 }
 
@@ -81,7 +88,7 @@ func TestAllOmitsDisabledProviders(t *testing.T) {
 	for _, provider := range providers {
 		ids = append(ids, provider.ID)
 	}
-	if len(providers) != 2 || ids[0] != codex.ProviderID || ids[1] != grok.ProviderID {
+	if len(providers) != 3 || ids[0] != codex.ProviderID || ids[1] != grok.ProviderID || ids[2] != kimi.ProviderID {
 		t.Fatalf("All() with claude and deepinfra disabled = %#v", ids)
 	}
 }

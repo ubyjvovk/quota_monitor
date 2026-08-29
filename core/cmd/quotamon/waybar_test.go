@@ -51,6 +51,17 @@ func TestRenderWaybarMarksAProviderWithoutAReadingUnavailable(t *testing.T) {
 	}
 }
 
+func TestRenderWaybarUsesTheKimiShortName(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	provider := waybarProvider("kimi", "Kimi", 14, now)
+
+	got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
+
+	if got.Text != "KM 14%" {
+		t.Fatalf("renderWaybar().Text = %q, want the KM short name", got.Text)
+	}
+}
+
 func waybarProvider(id, displayName string, percent float64, now time.Time) snapshot.Provider {
 	plan := "max"
 	minutes := 7 * 24 * 60
