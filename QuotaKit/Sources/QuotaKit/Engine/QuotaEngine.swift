@@ -3,8 +3,8 @@ import Observation
 
 /// Owns the provider set, refreshes them, and publishes the result.
 ///
-/// Adding a provider means adding one `HybridProvider` to `makeProviders` — the
-/// UI is driven entirely off the normalised snapshot and needs no changes.
+/// Adding a provider means adding one `HybridProvider` to `ProviderCatalog.all`
+/// — the UI is driven entirely off the normalised snapshot and needs no changes.
 @MainActor
 @Observable
 public final class QuotaEngine {
@@ -50,22 +50,7 @@ public final class QuotaEngine {
     // MARK: - Providers
 
     private func makeProviders() -> [HybridProvider] {
-        [
-            HybridProvider(
-                providerID: Claude.providerID,
-                displayName: Claude.displayName,
-                local: ClaudeLocalSource(),
-                live: ClaudeLiveSource(),
-                liveEnabled: settings.isLiveEnabled(Claude.providerID)
-            ),
-            HybridProvider(
-                providerID: Codex.providerID,
-                displayName: Codex.displayName,
-                local: CodexLocalSource(),
-                live: CodexLiveSource(),
-                liveEnabled: settings.isLiveEnabled(Codex.providerID)
-            ),
-        ]
+        ProviderCatalog.all(isLiveEnabled: settings.isLiveEnabled)
     }
 
     // MARK: - Refresh

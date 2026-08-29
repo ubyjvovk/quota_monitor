@@ -604,3 +604,120 @@ private func atElapsed(_ fraction: Double) -> Date {
     let result = await provider.fetch()
     #expect(result.status.message?.contains("404") == true)
 }
+
+// MARK: - Console report
+
+private let reportNow = Date(timeIntervalSince1970: 2_000_000_000)
+private let twoHoursThirtyNine = reportNow.addingTimeInterval(2 * 3600 + 39 * 60)
+private let oneDayTwentyOneHours = reportNow.addingTimeInterval(86_400 + 21 * 3600)
+
+@Test func consoleReportRendersBothWindowsWithPercentagesAndResets() {
+    let snapshot = ProviderSnapshot(
+        id: Claude.providerID, displayName: Claude.displayName, plan: "max",
+        windows: [
+            QuotaWindow(id: "five_hour", label: "5h", kind: .session,
+                        usedPercent: 10, resetsAt: twoHoursThirtyNine, windowMinutes: 300),
+            QuotaWindow(id: "seven_day", label: "Week", kind: .weekly,
+                        usedPercent: 14, resetsAt: oneDayTwentyOneHours, windowMinutes: 10080),
+        ],
+        observedAt: reportNow.addingTimeInterval(-2), origin: .live
+    )
+
+    let text = ConsoleReport.render([snapshot], asOf: reportNow)
+
+    #expect(text.contains("Claude"))
+    #expect(text.contains("max"))
+    #expect(text.contains("10.0%"))
+    #expect(text.contains("14.0%"))
+    #expect(text.contains("resets in 2h 39m"))
+    #expect(text.contains("resets in 1d 21h"))
+    #expect(text.contains("live"))
+}
+
+@Test func consoleReportRendersADashForAWindowWithNoReadingAndNeverPrintsZeroPercent() {
+    let reset = QuotaWindow(
+        id: "primary", label: "Week", kind: .weekly, usedPercent: 82,
+        resetsAt: reportNow.addingTimeInterval(-3600), windowMinutes: 10080
+    )
+    let snapshot = ProviderSnapshot(
+        id: Codex.providerID, displayName: Codex.displayName, plan: "plus",
+        windows: [reset],
+        observedAt: reportNow.addingTimeInterval(-15 * 86_400), origin: .local
+    )
+
+    let text = ConsoleReport.render([snapshot], asOf: reportNow)
+
+    #expect(text.contains("—"))
+    #expect(text.contains("no reading since this window reset"))
+    #expect(!text.contains("0.0%"))
+    #expect(!text.contains("82.0%"))
+}
+
+@Test func consoleReportRendersAnUnavailableProviderStatusMessage() {
+    let snapshot = ProviderSnapshot.unavailable(
+        id: Claude.providerID, displayName: Claude.displayName,
+        status: .needsSetup("Not signed in — run `claude` to sign in"),
+        observedAt: reportNow
+    )
+
+    let text = ConsoleReport.render([snapshot], asOf: reportNow)
+
+    #expect(text.contains("unavailable"))
+    #expect(text.contains("Not signed in — run `claude` to sign in"))
+}
+
+@Test func consoleReportTagsACachedProviderAndShowsItsAge() {
+    let snapshot = ProviderSnapshot(
+        id: Codex.providerID, displayName: Codex.displayName, plan: "plus",
+        windows: [
+            QuotaWindow(id: "primary", label: "Week", kind: .weekly,
+                        usedPercent: 18, resetsAt: oneDayTwentyOneHours, windowMinutes: 10080),
+        ],
+        observedAt: reportNow.addingTimeInterval(-15 * 86_400), origin: .local
+    )
+
+    let text = ConsoleReport.render([snapshot], asOf: reportNow)
+
+    #expect(text.contains("cached"))
+    #expect(text.contains("15d ago"))
+}
+
+@Test func consoleReportJSONRoundTripsUsedPercentWithNullForAResetWindow() throws {
+    let current = QuotaWindow(
+        id: "five_hour", label: "5h", kind: .session, usedPercent: 10,
+        resetsAt: twoHoursThirtyNine, windowMinutes: 300
+    )
+    let reset = QuotaWindow(
+        id: "seven_day", label: "Week", kind: .weekly, usedPercent: 82,
+        resetsAt: reportNow.addingTimeInterval(-3600), windowMinutes: 10080
+    )
+    let snapshot = ProviderSnapshot(
+        id: Claude.providerID, displayName: Claude.displayName, plan: "max",
+        windows: [current, reset],
+        observedAt: reportNow.addingTimeInterval(-2), origin: .live
+    )
+
+    let json = try ConsoleReport.renderJSON([snapshot], asOf: reportNow)
+    let root = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
+    let provider = try #require(root?[Claude.providerID] as? [String: Any])
+    let windows = try #require(provider["windows"] as? [[String: Any]])
+
+    let percentsByID = Dictionary(uniqueKeysWithValues: windows.compactMap { row -> (String, Any)? in
+        guard let id = row["id"] as? String, let percent = row["used_percent"] else { return nil }
+        return (id, percent)
+    })
+
+    #expect((percentsByID["five_hour"] as? NSNumber)?.doubleValue == 10)
+    #expect(percentsByID["seven_day"] is NSNull)
+    #expect((percentsByID["seven_day"] as? NSNumber)?.doubleValue != 0)
+}
+
+@Test func providerCatalogListsClaudeThenCodexAndHonoursTheLiveSwitch() {
+    let enabled = ProviderCatalog.all()
+    #expect(enabled.map(\.providerID) == [Claude.providerID, Codex.providerID])
+    #expect(enabled.allSatisfy { $0.liveEnabled })
+
+    let disabled = ProviderCatalog.all(isLiveEnabled: { _ in false })
+    #expect(disabled.map(\.providerID) == [Claude.providerID, Codex.providerID])
+    #expect(disabled.allSatisfy { !$0.liveEnabled })
+}
