@@ -23,13 +23,57 @@ public enum Claude {
         ("seven_day_opus", "Opus wk", .weekly),
     ]
 
-    /// Pulls whichever known windows are present out of a `rate_limits`-shaped object.
+    /// Builds windows from the `limits` array — the endpoint's canonical,
+    /// self-describing list. It is preferred because scoped limits are not
+    /// represented by the legacy top-level keys. Returns nil when the document
+    /// has no usable array, so the caller can fall back to those keys.
+    static func windowsFromLimits(_ root: JSONValue) -> [QuotaWindow]? {
+        guard case let .array(entries) = root["limits"] else { return nil }
+
+        let windows = entries.compactMap { entry -> QuotaWindow? in
+            guard let id = entry["kind"]?.string,
+                  let group = entry["group"]?.string,
+                  let used = entry["percent"]?.double
+            else { return nil }
+
+            let label: String
+            if group == "session" {
+                label = "5h"
+            } else if id == "weekly_all" {
+                label = "Week"
+            } else if id == "weekly_scoped" {
+                label = entry["scope"]?["model"]?["display_name"]?.string.map { "\($0) wk" }
+                    ?? "Week (scoped)"
+            } else {
+                return nil
+            }
+
+            let kind: QuotaWindow.Kind = group == "session" ? .session : .weekly
+            return QuotaWindow(
+                id: id,
+                label: label,
+                kind: kind,
+                usedPercent: used,
+                resetsAt: entry["resets_at"]?.date,
+                windowMinutes: kind == .session ? 300 : 60 * 24 * 7
+            )
+        }
+
+        return windows.isEmpty ? nil : windows
+    }
+
+    /// Pulls quota windows from the canonical `limits` array when available,
+    /// falling back to known legacy keys for statusLine mirrors and old responses.
     ///
     /// Key spellings are matched loosely because the statusLine payload
     /// (`used_percentage`) and the usage endpoint may not agree.
-    static func windows(from limits: JSONValue) -> [QuotaWindow] {
-        knownWindows.compactMap { spec in
-            guard let node = limits.firstValue(forKey: spec.key),
+    static func windows(from root: JSONValue) -> [QuotaWindow] {
+        if let canonical = windowsFromLimits(root) {
+            return canonical
+        }
+
+        return knownWindows.compactMap { spec in
+            guard let node = root.firstValue(forKey: spec.key),
                   let used = node.firstValue(forAnyKey: [
                       "used_percentage", "usedPercentage", "used_percent", "utilization",
                   ])?.double
@@ -76,6 +120,41 @@ public enum Claude {
     ) -> ProviderSnapshot? {
         let windows = windows(from: limits)
         guard !windows.isEmpty else { return nil }
+
+        let credits: Credits?
+        if let spend = limits["spend"] {
+            let limit = spend["limit"]
+            let used = spend["used"]
+            let limitMinor = limit?["amount_minor"]?.double
+            let usedMinor = used?["amount_minor"]?.double
+            let exponentValue = limit?["exponent"]?.double ?? used?["exponent"]?.double
+            let remainingMinor = limitMinor.flatMap { limitAmount in
+                usedMinor.map { limitAmount - $0 }
+            }
+
+            let balance: String?
+            if let remainingMinor,
+               let exponentValue,
+               exponentValue >= 0,
+               exponentValue.rounded() == exponentValue
+            {
+                let exponent = Int(exponentValue)
+                balance = String(
+                    format: "%.*f", exponent, remainingMinor / pow(10, Double(exponent))
+                )
+            } else {
+                balance = nil
+            }
+
+            credits = Credits(
+                hasCredits: (remainingMinor ?? 0) > 0,
+                unlimited: false,
+                balance: balance
+            )
+        } else {
+            credits = nil
+        }
+
         return ProviderSnapshot(
             id: providerID,
             displayName: displayName,
@@ -83,6 +162,7 @@ public enum Claude {
                 "subscription_type", "plan_type", "account_type",
             ])?.string,
             windows: windows,
+            credits: credits,
             observedAt: observedAt,
             origin: origin
         )
