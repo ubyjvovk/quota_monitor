@@ -3,7 +3,9 @@ package registry
 
 import (
 	"os"
+	"time"
 
+	"quotamon/internal/cache"
 	"quotamon/internal/config"
 	"quotamon/internal/hybrid"
 	"quotamon/internal/providers/claude"
@@ -22,6 +24,8 @@ type Options struct {
 	LiveEnabled func(id string) bool
 	// Env reads an environment variable and defaults to os.Getenv.
 	Env func(string) string
+	// Fresh bypasses stale-token cache readings and requests provider refresh.
+	Fresh bool
 }
 
 // All returns every supported provider in stable display order.
@@ -37,6 +41,7 @@ func All(options Options) []hybrid.Provider {
 
 	configured := options.Config.Providers
 	codexHome := codex.DefaultHome()
+	readingCache := &cache.Store{}
 	var codexLive source.Source
 	switch configured[codex.ProviderID].Live {
 	case "off":
@@ -50,11 +55,14 @@ func All(options Options) []hybrid.Provider {
 	providers := make([]hybrid.Provider, 0, 5)
 	if configured[claude.ProviderID].Enabled {
 		providers = append(providers, hybrid.Provider{
-			ID:          claude.ProviderID,
-			DisplayName: claude.DisplayName,
-			Local:       claude.LocalSource{MirrorPath: claude.DefaultMirrorPath()},
-			Live:        claude.LiveSource{},
-			LiveEnabled: liveEnabled(claude.ProviderID),
+			ID:             claude.ProviderID,
+			DisplayName:    claude.DisplayName,
+			Local:          claude.LocalSource{MirrorPath: claude.DefaultMirrorPath()},
+			Live:           claude.LiveSource{},
+			LiveEnabled:    liveEnabled(claude.ProviderID),
+			Cache:          readingCache,
+			ShortestWindow: 5 * time.Hour,
+			Fresh:          options.Fresh,
 		})
 	}
 	if configured[codex.ProviderID].Enabled {
@@ -66,17 +74,24 @@ func All(options Options) []hybrid.Provider {
 				MaxFiles:  16,
 				TailBytes: 512 * 1024,
 			},
-			Live:        codexLive,
-			LiveEnabled: liveEnabled(codex.ProviderID),
+			Live:           codexLive,
+			LiveEnabled:    liveEnabled(codex.ProviderID),
+			Cache:          readingCache,
+			ShortestWindow: 5 * time.Hour,
+			Fresh:          options.Fresh,
 		})
 	}
 	if configured[grok.ProviderID].Enabled {
 		providers = append(providers, hybrid.Provider{
-			ID:          grok.ProviderID,
-			DisplayName: grok.DisplayName,
-			Local:       nil,
-			Live:        grok.LiveSource{},
-			LiveEnabled: liveEnabled(grok.ProviderID),
+			ID:             grok.ProviderID,
+			DisplayName:    grok.DisplayName,
+			Local:          nil,
+			Live:           grok.LiveSource{},
+			LiveEnabled:    liveEnabled(grok.ProviderID),
+			Cache:          readingCache,
+			ShortestWindow: 7 * 24 * time.Hour,
+			TokenStale:     grokTokenStale,
+			Fresh:          options.Fresh,
 		})
 	}
 	if configured[deepinfra.ProviderID].Enabled {
@@ -91,17 +106,40 @@ func All(options Options) []hybrid.Provider {
 				}
 				return environment("DEEPINFRA_KEY")
 			}},
-			LiveEnabled: liveEnabled(deepinfra.ProviderID),
+			LiveEnabled:    liveEnabled(deepinfra.ProviderID),
+			Cache:          readingCache,
+			ShortestWindow: 30 * 24 * time.Hour,
+			Fresh:          options.Fresh,
 		})
 	}
 	if configured[kimi.ProviderID].Enabled {
+		refresher := kimi.CLIRefresher{}
 		providers = append(providers, hybrid.Provider{
-			ID:          kimi.ProviderID,
-			DisplayName: kimi.DisplayName,
-			Local:       nil,
-			Live:        kimi.LiveSource{},
-			LiveEnabled: liveEnabled(kimi.ProviderID),
+			ID:             kimi.ProviderID,
+			DisplayName:    kimi.DisplayName,
+			Local:          nil,
+			Live:           kimi.LiveSource{},
+			LiveEnabled:    liveEnabled(kimi.ProviderID),
+			Cache:          readingCache,
+			ShortestWindow: 5 * time.Hour,
+			TokenStale:     kimiTokenStale,
+			Refresh:        refresher.Refresh,
+			Fresh:          options.Fresh,
 		})
 	}
 	return providers
+}
+
+func kimiTokenStale(now time.Time) bool {
+	credentials, err := (kimi.CredentialStore{}).Load()
+	return err == nil && credentials.ExpiresAt != nil && !credentials.ExpiresAt.After(now)
+}
+
+func grokTokenStale(now time.Time) bool {
+	blob, err := os.ReadFile(grok.DefaultAuthPath())
+	if err != nil {
+		return false
+	}
+	credentials, err := grok.ParseCredentials(blob)
+	return err == nil && credentials.ExpiresAt != nil && !credentials.ExpiresAt.After(now)
 }

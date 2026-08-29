@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"quotamon/internal/cache"
 	"quotamon/internal/hybrid"
 	"quotamon/internal/registry"
 	"quotamon/internal/snapshot"
@@ -306,6 +308,105 @@ func TestCheckWithNoLiveShowsALiveOnlyProviderAsSkippedWithoutALocalLine(t *test
 	}
 }
 
+func TestCheckReportsStaleKimiTokenAndCachedReadingWithoutProbingLive(t *testing.T) {
+	home := t.TempDir()
+	configDirectory := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("QUOTA_MONITOR_DIR", configDirectory)
+	if err := os.WriteFile(filepath.Join(configDirectory, "config.json"), []byte(`{"version":1,"providers":{"kimi":{"enabled":true}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	credentialDirectory := filepath.Join(home, ".kimi-code", "credentials")
+	if err := os.MkdirAll(credentialDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	credentials := []byte(fmt.Sprintf(`{"access_token":"token","expires_at":%d}`, now.Add(-12*time.Minute).Unix()))
+	if err := os.WriteFile(filepath.Join(credentialDirectory, "kimi-code.json"), credentials, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cached := commandProvider("kimi", "Kimi", 14, now.Add(4*time.Hour))
+	cached.ObservedAt = snapshot.Time{Time: now.Add(-time.Hour)}
+	cached.Origin = snapshot.OriginLive
+	if err := (cache.Store{}).Save(cached); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runWithFactory([]string{"check"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, registry.All)
+	if exit != 0 || stderr.Len() != 0 {
+		t.Fatalf("run(check) exit = %d, stderr = %q", exit, stderr.String())
+	}
+	want := "Kimi live: token stale (expired 12m ago) — cached reading available\n"
+	if stdout.String() != want {
+		t.Fatalf("check output = %q, want %q", stdout.String(), want)
+	}
+}
+
+func TestCheckReportsAStaleTokenWithoutRefreshing(t *testing.T) {
+	setupValidConfig(t)
+	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
+	var refreshCalls atomic.Int32
+	configured := []hybrid.Provider{{
+		ID: "test", DisplayName: "Test",
+		Live:        commandStubSource{id: "test", displayName: "Test", origin: snapshot.OriginLive},
+		LiveEnabled: true,
+		TokenStale:  func(time.Time) bool { return true },
+		Refresh: func(context.Context) error {
+			refreshCalls.Add(1)
+			return nil
+		},
+		Now: func() time.Time { return now },
+	}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runWithFactory([]string{"check"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
+	if exit != 0 || stderr.Len() != 0 {
+		t.Fatalf("run(check) exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if refreshCalls.Load() != 0 {
+		t.Fatalf("check triggered %d refreshes, want 0 — check only reports token state", refreshCalls.Load())
+	}
+	if !strings.Contains(stdout.String(), "Test live: token stale") {
+		t.Fatalf("check output = %q, want a token-stale line", stdout.String())
+	}
+}
+
+func TestFreshFlagReachesDefaultSnapshotAndWaybarProviders(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "default command", args: []string{"--fresh"}},
+		{name: "snapshot command", args: []string{"snapshot", "--fresh"}},
+		{name: "waybar command", args: []string{"waybar", "--fresh"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setupValidConfig(t)
+			now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+			freshSeen := false
+			factory := func(options registry.Options) []hybrid.Provider {
+				freshSeen = options.Fresh
+				return []hybrid.Provider{{
+					ID: "test", DisplayName: "Test",
+					Local: commandStubSource{id: "test", displayName: "Test", origin: snapshot.OriginLocal, provider: commandProvider("test", "Test", 12, now.Add(time.Hour))},
+					Now:   func() time.Time { return now },
+				}}
+			}
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			if exit := runWithFactory(test.args, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, factory); exit != 0 || stderr.Len() != 0 {
+				t.Fatalf("run(%q) exit = %d, stderr = %q", test.args, exit, stderr.String())
+			}
+			if !freshSeen {
+				t.Fatalf("run(%q) did not set registry.Options.Fresh", test.args)
+			}
+		})
+	}
+}
+
 func TestHelpFormsListEveryCommandOnStandardOutput(t *testing.T) {
 	tests := []struct {
 		name string
@@ -369,6 +470,7 @@ func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 		{name: "invalid color mode", args: []string{"--color=sometimes"}},
 		{name: "color without a mode", args: []string{"--color"}},
 		{name: "duplicate color mode", args: []string{"--color=auto", "--color=never"}},
+		{name: "fresh check is unsupported", args: []string{"check", "--fresh"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -432,6 +534,7 @@ func fixedFactory(configured []hybrid.Provider) providerFactory {
 		providers := append([]hybrid.Provider(nil), configured...)
 		for index := range providers {
 			providers[index].LiveEnabled = options.LiveEnabled == nil || options.LiveEnabled(providers[index].ID)
+			providers[index].Fresh = options.Fresh
 		}
 		return providers
 	}

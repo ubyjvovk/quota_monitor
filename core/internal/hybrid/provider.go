@@ -3,9 +3,11 @@ package hybrid
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
+	"quotamon/internal/cache"
 	"quotamon/internal/format"
 	"quotamon/internal/snapshot"
 	"quotamon/internal/source"
@@ -23,6 +25,16 @@ type Provider struct {
 	Live source.Source
 	// LiveEnabled controls whether Fetch may call Live.
 	LiveEnabled bool
+	// Cache stores the last usable live reading for stale-token fallback.
+	Cache *cache.Store
+	// ShortestWindow limits how long a stale-token cache can be returned without refreshing.
+	ShortestWindow time.Duration
+	// TokenStale reports whether the live credential has expired by timestamp.
+	TokenStale func(now time.Time) bool
+	// Refresh asks the provider's own client to renew a stale credential.
+	Refresh func(ctx context.Context) error
+	// Fresh bypasses the stale-token cache and forces a refresh attempt.
+	Fresh bool
 	// Now supplies the current time and defaults to time.Now.
 	Now func() time.Time
 }
@@ -33,8 +45,71 @@ type outcome struct {
 	attempted bool
 }
 
-// Fetch runs the enabled sources concurrently and prefers a usable live reading.
+// Prepared is a Provider whose stale-token policy has already run: PreFetch
+// consulted the cache and attempted any credential refresh, so Fetch only
+// queries the sources. Splitting the phases lets callers give the (possibly
+// process-launching) refresh its own budget instead of the fetch timeout.
+type Prepared struct {
+	provider       Provider
+	asOf           time.Time
+	cachedOutcome  outcome
+	refreshMessage string
+	served         snapshot.Provider
+	servedReady    bool
+}
+
+// PreFetch resolves the stale-token policy without querying any source: a
+// young cache reading with a current window short-circuits the fetch entirely;
+// otherwise a stale token triggers the provider's own refresh. It is a no-op
+// when live sources are disabled, so --no-live never touches the cache or
+// launches a refresh.
+func (p Provider) PreFetch(ctx context.Context) Prepared {
+	now := p.Now
+	if now == nil {
+		now = time.Now
+	}
+	asOf := now()
+	prepared := Prepared{provider: p, asOf: asOf}
+
+	stale := p.LiveEnabled && p.Live != nil && p.TokenStale != nil && p.TokenStale(asOf)
+	if !stale {
+		return prepared
+	}
+	if !p.Fresh && p.Cache != nil {
+		if cached, found := p.Cache.Load(p.ID); found {
+			prepared.cachedOutcome = outcome{provider: cached, attempted: true}
+			if asOf.Sub(cached.ObservedAt.Time) < p.ShortestWindow && hasCurrentWindow(cached, asOf) {
+				prepared.served = cachedReading(cached, snapshot.OK())
+				prepared.servedReady = true
+				return prepared
+			}
+		}
+	}
+	if p.Refresh != nil {
+		if err := p.Refresh(ctx); err != nil {
+			prepared.refreshMessage = fmt.Sprintf("%s sign-in is stale — open `kimi` to refresh it (auto-refresh failed: %v)", p.DisplayName, err)
+		}
+	}
+	return prepared
+}
+
+// Fetch uses a current stale-token cache when policy permits, otherwise runs
+// the enabled sources concurrently and prefers a usable live reading. It is
+// PreFetch and Prepared.Fetch in one step, for callers that do not separate
+// the refresh budget from the fetch budget.
 func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
+	return p.PreFetch(ctx).Fetch(ctx)
+}
+
+// Fetch runs the enabled sources concurrently and prefers a usable live
+// reading, falling back to the local and then the cached reading.
+func (prepared Prepared) Fetch(ctx context.Context) snapshot.Provider {
+	if prepared.servedReady {
+		return prepared.served
+	}
+	p := prepared.provider
+	asOf := prepared.asOf
+
 	var liveOutcome outcome
 	var localOutcome outcome
 	var group sync.WaitGroup
@@ -55,35 +130,23 @@ func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
 	group.Wait()
 
 	if liveOutcome.attempted && liveOutcome.err == nil && usable(liveOutcome.provider) {
+		if p.Cache != nil {
+			// Cache persistence is best-effort: a valid live reading should not be
+			// hidden merely because its fallback copy could not be written.
+			_ = p.Cache.Save(liveOutcome.provider)
+		}
 		return liveOutcome.provider
 	}
 
-	now := p.Now
-	if now == nil {
-		now = time.Now
-	}
-	asOf := now()
-	if localOutcome.attempted && localOutcome.err == nil && usable(localOutcome.provider) {
-		provider := localOutcome.provider
-		if len(provider.Windows) > 0 {
-			hasCurrentReading := false
-			for _, window := range provider.Windows {
-				if _, current := window.CurrentUsedPercent(asOf); current {
-					hasCurrentReading = true
-					break
-				}
-			}
-			if !hasCurrentReading {
-				provider.Status = snapshot.NeedsSetup(
-					"Last reading " + format.Age(asOf.Sub(provider.ObservedAt.Time)) + "; its window has since reset",
-				)
-				return provider
-			}
-		}
-		if liveOutcome.attempted && liveOutcome.err != nil {
-			provider.Status = snapshot.NeedsSetup("Cached — live refresh failed: " + liveOutcome.err.Error())
-		}
+	if provider, found := fallbackReading(localOutcome, asOf, prepared.refreshMessage, liveOutcome.err, false); found {
 		return provider
+	}
+	if provider, found := fallbackReading(prepared.cachedOutcome, asOf, prepared.refreshMessage, liveOutcome.err, true); found {
+		return provider
+	}
+
+	if prepared.refreshMessage != "" {
+		return snapshot.Unavailable(p.ID, p.DisplayName, snapshot.NeedsSetup(prepared.refreshMessage), asOf)
 	}
 
 	message := mostActionableMessage(localOutcome, liveOutcome)
@@ -91,6 +154,43 @@ func (p Provider) Fetch(ctx context.Context) snapshot.Provider {
 		message = "No data source configured"
 	}
 	return snapshot.Unavailable(p.ID, p.DisplayName, snapshot.NeedsSetup(message), asOf)
+}
+
+func fallbackReading(candidate outcome, asOf time.Time, refreshMessage string, liveError error, cached bool) (snapshot.Provider, bool) {
+	if !candidate.attempted || candidate.err != nil || !usable(candidate.provider) {
+		return snapshot.Provider{}, false
+	}
+	provider := candidate.provider
+	if cached {
+		provider.Origin = snapshot.OriginLocal
+	}
+	if len(provider.Windows) > 0 && !hasCurrentWindow(provider, asOf) {
+		provider.Status = snapshot.NeedsSetup(
+			"Last reading " + format.Age(asOf.Sub(provider.ObservedAt.Time)) + "; its window has since reset",
+		)
+		return provider, true
+	}
+	if refreshMessage != "" {
+		provider.Status = snapshot.NeedsSetup(refreshMessage)
+	} else if liveError != nil {
+		provider.Status = snapshot.NeedsSetup("Cached — live refresh failed: " + liveError.Error())
+	}
+	return provider, true
+}
+
+func cachedReading(provider snapshot.Provider, status snapshot.Status) snapshot.Provider {
+	provider.Origin = snapshot.OriginLocal
+	provider.Status = status
+	return provider
+}
+
+func hasCurrentWindow(provider snapshot.Provider, now time.Time) bool {
+	for _, window := range provider.Windows {
+		if _, current := window.CurrentUsedPercent(now); current {
+			return true
+		}
+	}
+	return false
 }
 
 // usable accepts DeepInfra's pay-as-you-go reading, which has credits but no quota windows.

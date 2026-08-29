@@ -3,6 +3,7 @@ package registry_test
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"quotamon/internal/config"
 	"quotamon/internal/providers/claude"
@@ -66,11 +67,23 @@ func TestAllReturnsOnlyEnabledProvidersInStableOrder(t *testing.T) {
 	if _, ok := providers[4].Live.(kimi.LiveSource); !ok {
 		t.Fatalf("Kimi live = %T, want LiveSource", providers[4].Live)
 	}
+	wantWindows := []time.Duration{5 * time.Hour, 5 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 5 * time.Hour}
+	for index, provider := range providers {
+		if provider.Cache == nil || provider.ShortestWindow != wantWindows[index] {
+			t.Errorf("provider %s cache/window = %v/%s, want configured/%s", provider.ID, provider.Cache, provider.ShortestWindow, wantWindows[index])
+		}
+	}
+	if providers[0].TokenStale != nil || providers[1].TokenStale != nil || providers[2].TokenStale == nil || providers[3].TokenStale != nil || providers[4].TokenStale == nil {
+		t.Fatalf("token-stale policies are not wired only for Grok and Kimi")
+	}
+	if providers[0].Refresh != nil || providers[1].Refresh != nil || providers[2].Refresh != nil || providers[3].Refresh != nil || providers[4].Refresh == nil {
+		t.Fatalf("refresh policy is not wired only for Kimi")
+	}
 }
 
 func TestAllAppliesLivePolicyAcrossEnabledProviders(t *testing.T) {
 	providers := registry.All(registry.Options{
-		Config: enabledConfig(),
+		Config:      enabledConfig(),
 		LiveEnabled: func(id string) bool { return id != claude.ProviderID },
 	})
 	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled || !providers[3].LiveEnabled || !providers[4].LiveEnabled {
@@ -175,5 +188,14 @@ func TestAllFallsBackToTheEnvironmentWhenDeepInfraConfigHasNoKey(t *testing.T) {
 	}
 	if key := live.Key(); key != "from-env" {
 		t.Fatalf("DeepInfra Key() = %q, want the environment fallback", key)
+	}
+}
+
+func TestAllPropagatesFreshToEveryEnabledProvider(t *testing.T) {
+	providers := registry.All(registry.Options{Config: enabledConfig(), Fresh: true})
+	for _, provider := range providers {
+		if !provider.Fresh {
+			t.Errorf("provider %s Fresh = false, want true", provider.ID)
+		}
 	}
 }

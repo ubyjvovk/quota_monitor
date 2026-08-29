@@ -3,9 +3,15 @@
 The live source reads the Kimi CLI bearer token from
 `~/.kimi-code/credentials/kimi-code.json` — the `access_token` field, addressed
 by explicit path. The token lives only **15 minutes** and the Kimi TUI refreshes
-it on launch; when it has lapsed the source reports
-"Kimi sign-in expired — run `kimi` once" rather than guessing at a refresh
-endpoint (the refresh route is not yet known).
+it on launch. When a cached reading is no longer young enough to reuse,
+QuotaMon launches the TUI through `script(1)`, waits for startup, and sends
+`/exit`; it then accepts the refresh only if the CLI-owned credential file has
+a future `expires_at`. The launch runs from the user's home directory —
+started in an untrusted folder the TUI stops at its "Trust this folder?"
+prompt and never reaches the startup token refresh — and on its own 20-second
+deadline, ahead of (never inside) the 10-second fetch budget. QuotaMon never
+reads the refresh token, rotates it, or calls the authentication endpoint
+itself.
 
 Usage comes from
 
