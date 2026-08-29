@@ -62,17 +62,26 @@ their UI elsewhere — and workers are told not to touch `App/`, `Widget/`, or
   can be specified as a ticket; deliberately not handed to a C2 worker.
 
 ## Board snapshot
-- 2026-08-29 — board initialised. T-0001, T-0002, T-0003 drafted and queued to
-  `todo/`. Nothing accepted yet.
+- 2026-08-29 — **T-0001, T-0002, T-0003 all accepted and merged to master.**
+  Board drained, no worktrees, `tigerteam check` 15 ok / 0 warn / 0 fail.
+  Tests 37 -> 50, all passing. Total fleet spend: 8 attempts, ~29m, $0.12.
+  Verified by hand on master: `quotactl` prints both providers; Claude reads
+  `live` (no Keychain prompt) and the previously-missed `Fable wk 20.0%`
+  scoped window now appears as the most constrained reading.
 
-## Next actions
-1. Smoke one worker (`tigerteam worker run codex --once`) and confirm the
-   ticket lands in `review/` with a sane report before scaling up.
-2. `tigerteam up`, then handle digests: review oldest first.
-3. On T-0002 landing, run `quotactl` by hand and eyeball the real output.
-4. After T-0001 + T-0003 land, re-verify live Claude end to end and confirm the
-   20% scoped weekly window actually appears.
-5. Then decide on the Codex 404 (research ticket vs. PM-owned investigation).
+## Next actions (phase 1 complete — these await the human's call)
+1. **Codex/ChatGPT live source returns HTTP 404.** Local rollout still works.
+   Needs endpoint research; deliberately not a C2 ticket.
+2. **Credits display overstates headroom.** `spend` maps to
+   `credits.balance` = limit - used, so a `max` account renders
+   `credits 20.00 remaining` even though the same payload says
+   `spend.enabled: false` / `disabled_reason: "out_of_credits"` (credits are
+   not actually usable). My spec for T-0003 asked for exactly this, so the
+   worker was correct; the *spec* was wrong. Fix: honour `enabled` before
+   showing a balance.
+3. Optional: surface `severity` / `is_active` from the `limits` array — the
+   endpoint marks which window is the binding one, and we currently ignore it.
+4. Mac app/widget remain ON HOLD pending the human's UI work.
 
 ## How to resume
 1. Read this file.
