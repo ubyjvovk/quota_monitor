@@ -94,6 +94,87 @@ func TestDefaultCommandPrintsTableAndUsesWindowExitStatus(t *testing.T) {
 	}
 }
 
+func TestColorAlwaysColorsOnlyWarningAndCriticalBarsAndPercents(t *testing.T) {
+	unsetEnvironment(t, "NO_COLOR")
+	tests := []struct {
+		name           string
+		percent        float64
+		wantColor      string
+		wantFilled     int
+		wantEscapes    int
+		wantPercentage string
+	}{
+		{name: "critical at one hundred percent", percent: 100, wantColor: "\x1b[31m", wantFilled: 20, wantEscapes: 2, wantPercentage: "100%"},
+		{name: "warning at seventy five percent", percent: 75, wantColor: "\x1b[33m", wantFilled: 15, wantEscapes: 2, wantPercentage: "75%"},
+		{name: "normal at thirty percent", percent: 30, wantFilled: 6, wantEscapes: 0, wantPercentage: "30%"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := runTableForColorTest(t, []string{"--color=always", "--no-live"}, test.percent)
+			if got := strings.Count(output, "\x1b["); got != test.wantEscapes*2 {
+				t.Fatalf("ANSI sequence count = %d, output = %q", got, output)
+			}
+			if test.wantColor == "" {
+				return
+			}
+			coloredFilled := test.wantColor + strings.Repeat("█", test.wantFilled) + "\x1b[0m"
+			coloredPercent := test.wantColor + test.wantPercentage + "\x1b[0m"
+			if !strings.Contains(output, coloredFilled) || !strings.Contains(output, coloredPercent) {
+				t.Fatalf("colored table output = %q", output)
+			}
+		})
+	}
+}
+
+func TestNoColorOverridesAlwaysAndNeverEmitsNoANSI(t *testing.T) {
+	t.Run("NO_COLOR overrides always", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "1")
+		output := runTableForColorTest(t, []string{"--color=always", "--no-live"}, 100)
+		if strings.Contains(output, "\x1b") {
+			t.Fatalf("NO_COLOR output contains ANSI: %q", output)
+		}
+	})
+	t.Run("never suppresses color", func(t *testing.T) {
+		unsetEnvironment(t, "NO_COLOR")
+		output := runTableForColorTest(t, []string{"--color=never", "--no-live"}, 100)
+		if strings.Contains(output, "\x1b") {
+			t.Fatalf("--color=never output contains ANSI: %q", output)
+		}
+	})
+}
+
+func TestColorFlagNeverChangesMachineReadableOutput(t *testing.T) {
+	unsetEnvironment(t, "NO_COLOR")
+	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
+	provider := commandProvider("claude", "Claude", 100, now.Add(time.Hour))
+	configured := []hybrid.Provider{{
+		ID: "claude", DisplayName: "Claude",
+		Local: commandStubSource{id: "claude", displayName: "Claude", origin: snapshot.OriginLocal, provider: provider},
+		Now:   func() time.Time { return now },
+	}}
+	for _, args := range [][]string{
+		{"--json", "--color=always", "--no-live"},
+		{"snapshot", "--color=always", "--no-live"},
+		{"waybar", "--color=always", "--no-live"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			setupValidConfig(t)
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			if exit := runWithFactory(args, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured)); exit != 0 {
+				t.Fatalf("run(%q) exit = %d, stderr = %q", args, exit, stderr.String())
+			}
+			if strings.Contains(stdout.String(), "\x1b") {
+				t.Fatalf("run(%q) output contains ANSI: %q", args, stdout.String())
+			}
+			var decoded any
+			if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+				t.Fatalf("run(%q) output is not JSON: %v", args, err)
+			}
+		})
+	}
+}
+
 func TestJSONFlagIsAnAliasForSnapshot(t *testing.T) {
 	setupValidConfig(t)
 	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
@@ -162,9 +243,23 @@ func TestCheckReportsEachSourceAndAlwaysSucceeds(t *testing.T) {
 	if exit != 0 || stderr.Len() != 0 {
 		t.Fatalf("run(check) exit = %d, stderr = %q", exit, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Claude local: ok — 1 windows, max") ||
+	if !strings.Contains(stdout.String(), "Claude local: ok — 1 window, max") ||
 		!strings.Contains(stdout.String(), "Claude live: unauthorized: sign in again") {
 		t.Fatalf("check output = %q", stdout.String())
+	}
+}
+
+func TestCheckPluralizesWindowCounts(t *testing.T) {
+	plan := "max"
+	results := []diagnosticResult{
+		{diagnosticProbe: diagnosticProbe{providerName: "One", origin: "local"}, provider: snapshot.Provider{Plan: &plan, Windows: make([]snapshot.Window, 1)}},
+		{diagnosticProbe: diagnosticProbe{providerName: "Two", origin: "live"}, provider: snapshot.Provider{Plan: &plan, Windows: make([]snapshot.Window, 2)}},
+	}
+	var output bytes.Buffer
+	writeDiagnostics(&output, results)
+	want := "One local: ok — 1 window, max\nTwo live: ok — 2 windows, max\n"
+	if output.String() != want {
+		t.Fatalf("writeDiagnostics() = %q, want %q", output.String(), want)
 	}
 }
 
@@ -260,7 +355,6 @@ func TestCommandsWithoutAConfigFilePrintTheSetupHintOrWaybarPayload(t *testing.T
 	}
 }
 
-
 func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 	tests := []struct {
 		name string
@@ -272,6 +366,9 @@ func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 		{name: "extra argument", args: []string{"waybar", "extra"}},
 		{name: "extra default flag", args: []string{"--no-live", "extra"}},
 		{name: "unknown JSON flag", args: []string{"--json", "--unknown"}},
+		{name: "invalid color mode", args: []string{"--color=sometimes"}},
+		{name: "color without a mode", args: []string{"--color"}},
+		{name: "duplicate color mode", args: []string{"--color=auto", "--color=never"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -283,6 +380,39 @@ func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 			}
 		})
 	}
+}
+
+func runTableForColorTest(t *testing.T, args []string, percent float64) string {
+	t.Helper()
+	setupValidConfig(t)
+	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
+	provider := commandProvider("claude", "Claude", percent, now.Add(time.Hour))
+	configured := []hybrid.Provider{{
+		ID: "claude", DisplayName: "Claude",
+		Local: commandStubSource{id: "claude", displayName: "Claude", origin: snapshot.OriginLocal, provider: provider},
+		Now:   func() time.Time { return now },
+	}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if exit := runWithFactory(args, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured)); exit != 0 || stderr.Len() != 0 {
+		t.Fatalf("run(%q) exit = %d, stderr = %q", args, exit, stderr.String())
+	}
+	return stdout.String()
+}
+
+func unsetEnvironment(t *testing.T, name string) {
+	t.Helper()
+	value, wasSet := os.LookupEnv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if wasSet {
+			_ = os.Setenv(name, value)
+		} else {
+			_ = os.Unsetenv(name)
+		}
+	})
 }
 
 // setupValidConfig points QUOTA_MONITOR_DIR at a temp directory holding a

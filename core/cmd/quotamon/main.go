@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,9 +20,9 @@ import (
 	"quotamon/internal/source"
 )
 
-const usageText = `Usage: quotamon [--no-live]
-       quotamon --json [--no-live]
-       quotamon <command> [--no-live]
+const usageText = `Usage: quotamon [--no-live] [--color=auto|always|never]
+       quotamon --json [--no-live] [--color=auto|always|never]
+       quotamon <command> [--no-live] [--color=auto|always|never]
 
 Commands:
   snapshot  Print the normalized quota snapshot as JSON
@@ -31,8 +32,9 @@ Commands:
   providers List providers and whether each is enabled
 
 Options:
-  --no-live  Skip live sources
-  --help, -h Show this help and exit
+  --no-live                 Skip live sources
+  --color=auto|always|never Colour the table usage bars (default: auto)
+  --help, -h                Show this help and exit
 `
 
 const overallTimeout = 10 * time.Second
@@ -48,12 +50,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 }
 
 func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time, providers providerFactory) int {
+	args, colorMode, colorValid := parseColorArgument(args)
 	command, liveEnabled, yes, help, valid := parseArguments(args)
 	if help {
 		fmt.Fprint(stdout, usageText)
 		return 0
 	}
-	if !valid {
+	if !valid || !colorValid {
 		fmt.Fprint(stderr, usageText)
 		return 2
 	}
@@ -83,7 +86,7 @@ func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, no
 	switch command {
 	case "table":
 		result := fetchAll(ctx, configured, now)
-		fmt.Fprintln(stdout, renderTable(result, result.GeneratedAt.Time))
+		fmt.Fprintln(stdout, renderTableWithColor(result, result.GeneratedAt.Time, tableColorEnabled(colorMode, stdout)))
 		return windowExitStatus(result)
 	case "snapshot":
 		result := fetchAll(ctx, configured, now)
@@ -106,6 +109,48 @@ func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, no
 		return 0
 	default:
 		panic("validated command was not handled")
+	}
+}
+
+func parseColorArgument(args []string) ([]string, string, bool) {
+	filtered := make([]string, 0, len(args))
+	mode := "auto"
+	found := false
+	for _, argument := range args {
+		if !strings.HasPrefix(argument, "--color=") {
+			filtered = append(filtered, argument)
+			continue
+		}
+		if found {
+			return filtered, mode, false
+		}
+		found = true
+		mode = strings.TrimPrefix(argument, "--color=")
+		switch mode {
+		case "auto", "always", "never":
+		default:
+			return filtered, mode, false
+		}
+	}
+	return filtered, mode, true
+}
+
+func tableColorEnabled(mode string, stdout io.Writer) bool {
+	if _, disabled := os.LookupEnv("NO_COLOR"); disabled {
+		return false
+	}
+	switch mode {
+	case "always":
+		return true
+	case "never":
+		return false
+	default:
+		file, ok := stdout.(*os.File)
+		if !ok {
+			return false
+		}
+		info, err := file.Stat()
+		return err == nil && info.Mode()&os.ModeCharDevice != 0
 	}
 }
 
@@ -261,7 +306,11 @@ func writeDiagnostics(writer io.Writer, results []diagnosticResult) {
 		if result.provider.Plan != nil {
 			plan = *result.provider.Plan
 		}
-		fmt.Fprintf(writer, "%s %s: ok — %d windows, %s\n", result.providerName, result.origin, len(result.provider.Windows), plan)
+		windowWord := "windows"
+		if len(result.provider.Windows) == 1 {
+			windowWord = "window"
+		}
+		fmt.Fprintf(writer, "%s %s: ok — %d %s, %s\n", result.providerName, result.origin, len(result.provider.Windows), windowWord, plan)
 	}
 }
 

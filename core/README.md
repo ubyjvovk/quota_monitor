@@ -35,17 +35,27 @@ The bare invocation fetches every provider and prints the human-readable table
 in registry order:
 
 ```text
-Claude          max    live · just now
-  5h               43%  resets in 2h 11m
-  Week             20%  resets in 4d 23h
-  credits        20.00 (not enabled)
-ChatGPT         plus   cached · 3m ago
-  Week             18%  resets in 6d 7h
-Grok            —      live · just now
-  Week             63%  resets in 4d 6h
-DeepInfra       pay-as-you-go live · just now
-  credits       $7.75 this month
+Claude       max            live · just now
+  Fave wk   █████░░░░░░░░░░░░░░░  23%  1d 16h
+  Week      ███░░░░░░░░░░░░░░░░░  15%  1d 16h
+  5h        █░░░░░░░░░░░░░░░░░░░   6%  2h 39m
+  credits   20.00 (not enabled)
+
+ChatGPT      plus           live · just now
+  5h        ████████████████████ 100%  8m
+  Week      ██████░░░░░░░░░░░░░░  31%  5d 11h
+
+Grok         —              live · just now
+  Week      █████████████░░░░░░░  63%  2d 13h
+
+DeepInfra    pay-as-you-go  live · just now
+  spend     $7.96 this month
 ```
+
+Table colour defaults to `--color=auto`, which colours warning and critical
+usage only when standard output is a terminal. Use `--color=always` or
+`--color=never` to override terminal detection; setting `NO_COLOR` to any value
+always disables colour, including when `--color=always` is present.
 
 `snapshot` fetches all providers concurrently, prefers usable live readings,
 and writes the normalised snapshot JSON; `--json` is an alias for it. A failed
