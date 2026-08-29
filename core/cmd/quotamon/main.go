@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"quotamon/internal/config"
+	"quotamon/internal/discover"
 	"quotamon/internal/hybrid"
 	"quotamon/internal/registry"
 	"quotamon/internal/snapshot"
@@ -26,8 +27,8 @@ Commands:
   snapshot  Print the normalized quota snapshot as JSON
   waybar    Print a one-line Waybar custom-module payload
   check     Probe each provider source independently
-  setup     (not implemented yet) configure providers interactively
-  providers (not implemented yet) list providers and their configuration
+  setup     Configure providers interactively; --yes enables what was found
+  providers List providers and whether each is enabled
 
 Options:
   --no-live  Skip live sources
@@ -39,15 +40,15 @@ const overallTimeout = 10 * time.Second
 type providerFactory func(registry.Options) []hybrid.Provider
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, time.Now))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, time.Now))
 }
 
-func run(args []string, stdout, stderr io.Writer, now func() time.Time) int {
-	return runWithFactory(args, stdout, stderr, now, registry.All)
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time) int {
+	return runWithFactory(args, stdin, stdout, stderr, now, registry.All)
 }
 
-func runWithFactory(args []string, stdout, stderr io.Writer, now func() time.Time, providers providerFactory) int {
-	command, liveEnabled, help, valid := parseArguments(args)
+func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time, providers providerFactory) int {
+	command, liveEnabled, yes, help, valid := parseArguments(args)
 	if help {
 		fmt.Fprint(stdout, usageText)
 		return 0
@@ -57,11 +58,13 @@ func runWithFactory(args []string, stdout, stderr io.Writer, now func() time.Tim
 		return 2
 	}
 
-	// setup and providers are stubs until T-0019; they must not require a
-	// config file, because setup is exactly how a user creates one.
-	if command == "setup" || command == "providers" {
-		fmt.Fprintf(stderr, "%s: not implemented\n", command)
-		return 2
+	// setup and providers are the only commands that do not require a config:
+	// setup is how the user creates one, and providers reports its state.
+	switch command {
+	case "setup":
+		return runSetup(stdin, stdout, stderr, yes, discover.All)
+	case "providers":
+		return runProviders(stdout, stderr, discover.All)
 	}
 
 	cfg, err := config.Load()
@@ -119,37 +122,49 @@ func reportMissingConfig(command string, stdout, stderr io.Writer) int {
 	return 3
 }
 
-func parseArguments(args []string) (command string, liveEnabled, help, valid bool) {
+func parseArguments(args []string) (command string, liveEnabled, yes, help, valid bool) {
 	if len(args) == 0 {
-		return "table", true, false, true
+		return "table", true, false, false, true
 	}
 	for _, argument := range args {
 		if argument == "--help" || argument == "-h" {
-			return "", true, true, true
+			return "", true, false, true, true
 		}
 	}
 	if len(args) == 1 && args[0] == "--no-live" {
-		return "table", false, false, true
+		return "table", false, false, false, true
 	}
 	if args[0] == "--json" {
 		if len(args) == 1 {
-			return "snapshot", true, false, true
+			return "snapshot", true, false, false, true
 		}
 		if len(args) == 2 && args[1] == "--no-live" {
-			return "snapshot", false, false, true
+			return "snapshot", false, false, false, true
 		}
-		return "", true, false, false
+		return "", true, false, false, false
 	}
-	if args[0] != "snapshot" && args[0] != "waybar" && args[0] != "check" && args[0] != "setup" && args[0] != "providers" {
-		return "", true, false, false
+	if !isKnownCommand(args[0]) {
+		return "", true, false, false, false
 	}
 	if len(args) == 1 {
-		return args[0], true, false, true
+		return args[0], true, false, false, true
+	}
+	if args[0] == "setup" && len(args) == 2 && args[1] == "--yes" {
+		return "setup", true, true, false, true
 	}
 	if len(args) == 2 && args[1] == "--no-live" {
-		return args[0], false, false, true
+		return args[0], false, false, false, true
 	}
-	return "", true, false, false
+	return "", true, false, false, false
+}
+
+func isKnownCommand(command string) bool {
+	switch command {
+	case "snapshot", "waybar", "check", "setup", "providers":
+		return true
+	default:
+		return false
+	}
 }
 
 func windowExitStatus(result snapshot.Snapshot) int {

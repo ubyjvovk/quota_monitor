@@ -47,7 +47,7 @@ func TestSnapshotCommandPrintsFetchedProvidersAndUsesWindowExitStatus(t *testing
 	}}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := runWithFactory([]string{"snapshot", "--no-live"}, &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
+	exit := runWithFactory([]string{"snapshot", "--no-live"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
 	if exit != 0 || stderr.Len() != 0 {
 		t.Fatalf("run(snapshot) exit = %d, stderr = %q", exit, stderr.String())
 	}
@@ -65,7 +65,7 @@ func TestSnapshotCommandPrintsFetchedProvidersAndUsesWindowExitStatus(t *testing
 	}
 
 	stdout.Reset()
-	exit = runWithFactory([]string{"snapshot", "--no-live"}, &stdout, &stderr, func() time.Time { return now }, fixedFactory(nil))
+	exit = runWithFactory([]string{"snapshot", "--no-live"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(nil))
 	if exit != 1 {
 		t.Fatalf("empty snapshot exit = %d, want 1", exit)
 	}
@@ -82,13 +82,13 @@ func TestDefaultCommandPrintsTableAndUsesWindowExitStatus(t *testing.T) {
 	}}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := runWithFactory([]string{"--no-live"}, &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
+	exit := runWithFactory([]string{"--no-live"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
 	if exit != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "Claude") || !strings.Contains(stdout.String(), "43%") {
 		t.Fatalf("run(--no-live) exit = %d, stdout = %q, stderr = %q", exit, stdout.String(), stderr.String())
 	}
 
 	stdout.Reset()
-	exit = runWithFactory(nil, &stdout, &stderr, func() time.Time { return now }, fixedFactory(nil))
+	exit = runWithFactory(nil, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(nil))
 	if exit != 1 {
 		t.Fatalf("empty table exit = %d, want 1", exit)
 	}
@@ -106,10 +106,10 @@ func TestJSONFlagIsAnAliasForSnapshot(t *testing.T) {
 	var alias bytes.Buffer
 	var command bytes.Buffer
 	var stderr bytes.Buffer
-	if exit := runWithFactory([]string{"--json", "--no-live"}, &alias, &stderr, func() time.Time { return now }, fixedFactory(configured)); exit != 0 {
+	if exit := runWithFactory([]string{"--json", "--no-live"}, strings.NewReader(""), &alias, &stderr, func() time.Time { return now }, fixedFactory(configured)); exit != 0 {
 		t.Fatalf("run(--json --no-live) exit = %d, stderr = %q", exit, stderr.String())
 	}
-	if exit := runWithFactory([]string{"snapshot", "--no-live"}, &command, &stderr, func() time.Time { return now }, fixedFactory(configured)); exit != 0 {
+	if exit := runWithFactory([]string{"snapshot", "--no-live"}, strings.NewReader(""), &command, &stderr, func() time.Time { return now }, fixedFactory(configured)); exit != 0 {
 		t.Fatalf("run(snapshot --no-live) exit = %d, stderr = %q", exit, stderr.String())
 	}
 	if alias.String() != command.String() {
@@ -128,7 +128,7 @@ func TestWaybarCommandPrintsExactlyOneJSONLineWithFourKeys(t *testing.T) {
 	}}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := runWithFactory([]string{"waybar", "--no-live"}, &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
+	exit := runWithFactory([]string{"waybar", "--no-live"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
 	if exit != 0 || stderr.Len() != 0 || strings.Count(stdout.String(), "\n") != 1 {
 		t.Fatalf("run(waybar) exit = %d, stdout = %q, stderr = %q", exit, stdout.String(), stderr.String())
 	}
@@ -158,7 +158,7 @@ func TestCheckReportsEachSourceAndAlwaysSucceeds(t *testing.T) {
 	}}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := runWithFactory([]string{"check"}, &stdout, &stderr, time.Now, fixedFactory(configured))
+	exit := runWithFactory([]string{"check"}, strings.NewReader(""), &stdout, &stderr, time.Now, fixedFactory(configured))
 	if exit != 0 || stderr.Len() != 0 {
 		t.Fatalf("run(check) exit = %d, stderr = %q", exit, stderr.String())
 	}
@@ -179,7 +179,7 @@ func TestNoLiveNeverProbesTheLiveSourceAndLabelsItSkipped(t *testing.T) {
 	}}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := runWithFactory([]string{"check", "--no-live"}, &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
+	exit := runWithFactory([]string{"check", "--no-live"}, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
 	if exit != 0 || liveCalls.Load() != 0 {
 		t.Fatalf("run(check --no-live) exit = %d, live calls = %d", exit, liveCalls.Load())
 	}
@@ -198,7 +198,7 @@ func TestCheckWithNoLiveShowsALiveOnlyProviderAsSkippedWithoutALocalLine(t *test
 	}}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := runWithFactory([]string{"check", "--no-live"}, &stdout, &stderr, time.Now, fixedFactory(configured))
+	exit := runWithFactory([]string{"check", "--no-live"}, strings.NewReader(""), &stdout, &stderr, time.Now, fixedFactory(configured))
 	if exit != 0 || stderr.Len() != 0 {
 		t.Fatalf("run(check --no-live) exit = %d, stderr = %q", exit, stderr.String())
 	}
@@ -224,7 +224,7 @@ func TestHelpFormsListEveryCommandOnStandardOutput(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
-			exit := run(test.args, &stdout, &stderr, time.Now)
+			exit := run(test.args, strings.NewReader(""), &stdout, &stderr, time.Now)
 			if exit != 0 || stderr.Len() != 0 {
 				t.Fatalf("run() exit = %d, stderr = %q", exit, stderr.String())
 			}
@@ -242,7 +242,7 @@ func TestCommandsWithoutAConfigFilePrintTheSetupHintOrWaybarPayload(t *testing.T
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	if exit := runWithFactory([]string{"snapshot"}, &stdout, &stderr, time.Now, fixedFactory(nil)); exit != 3 {
+	if exit := runWithFactory([]string{"snapshot"}, strings.NewReader(""), &stdout, &stderr, time.Now, fixedFactory(nil)); exit != 3 {
 		t.Fatalf("snapshot without config exit = %d, want 3", exit)
 	}
 	if !strings.Contains(stderr.String(), "run: quotamon setup") || stdout.Len() != 0 {
@@ -251,7 +251,7 @@ func TestCommandsWithoutAConfigFilePrintTheSetupHintOrWaybarPayload(t *testing.T
 
 	stdout.Reset()
 	stderr.Reset()
-	if exit := runWithFactory([]string{"waybar"}, &stdout, &stderr, time.Now, fixedFactory(nil)); exit != 0 {
+	if exit := runWithFactory([]string{"waybar"}, strings.NewReader(""), &stdout, &stderr, time.Now, fixedFactory(nil)); exit != 0 {
 		t.Fatalf("waybar without config exit = %d, want 0", exit)
 	}
 	want := `{"text":"quota: run setup","tooltip":"Run ` + "`quotamon setup`" + ` in a terminal","class":"unavailable","percentage":0}` + "\n"
@@ -260,19 +260,6 @@ func TestCommandsWithoutAConfigFilePrintTheSetupHintOrWaybarPayload(t *testing.T
 	}
 }
 
-func TestSetupAndProvidersStubsPrintNotImplemented(t *testing.T) {
-	for _, command := range []string{"setup", "providers"} {
-		t.Setenv("QUOTA_MONITOR_DIR", t.TempDir())
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		if exit := runWithFactory([]string{command}, &stdout, &stderr, time.Now, fixedFactory(nil)); exit != 2 {
-			t.Fatalf("%s exit = %d, want 2", command, exit)
-		}
-		if !strings.Contains(stderr.String(), "not implemented") {
-			t.Fatalf("%s stderr = %q, want not implemented", command, stderr.String())
-		}
-	}
-}
 
 func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 	tests := []struct {
@@ -290,7 +277,7 @@ func TestUnknownCommandsAndFlagsExitTwoWithUsageOnStandardError(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
-			exit := runWithFactory(test.args, &stdout, &stderr, time.Now, fixedFactory(nil))
+			exit := runWithFactory(test.args, strings.NewReader(""), &stdout, &stderr, time.Now, fixedFactory(nil))
 			if exit != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "Usage: quotamon") {
 				t.Fatalf("run(%q) = exit %d, stdout %q, stderr %q", test.args, exit, stdout.String(), stderr.String())
 			}

@@ -106,6 +106,45 @@ stderr. `waybar` exits `0` and prints
 `{"text":"quota: run setup","tooltip":"Run `quotamon setup` in a terminal","class":"unavailable","percentage":0}`
 so the module shows a friendly message instead of disappearing.
 
+### First run
+
+Run `quotamon setup` once to create the config. It probes local credentials
+to see which providers are ready, shows the findings in one screen, and asks
+which to enable:
+
+```text
+Looking for providers…
+✓ Claude      Keychain item present
+✓ ChatGPT     ~/.codex/auth.json
+✗ Grok        not signed in — run `grok login`
+✗ DeepInfra   no API key
+· Kimi        credentials found, but Kimi exposes no quota API yet
+
+Enable Claude? [Y/n]
+Enable ChatGPT? [Y/n]
+Enable Grok? [y/N]
+Enable DeepInfra? [y/N]
+DeepInfra API key (input hidden is not available; paste and press Enter):
+Add anything else manually? [y/N]
+Wrote /Users/you/.config/quotamon/config.json (mode 0600). Run: quotamon
+```
+
+The default answer for each prompt is Y when the provider was found (or when
+it is already enabled on disk) and n otherwise. A provider that needs an API
+key and is enabled without one prompts for it; an empty answer leaves it
+disabled. `Add anything else manually?` enables a known provider that
+discovery missed (for example codex on an unusual path); there is nothing to
+add beyond the known set, so the prompt accepts only a known id and the
+wizard says so. Setup is re-runnable: it starts from the existing file, so
+pasted keys and manual choices survive.
+
+`quotamon setup --yes` performs the same discovery but skips every prompt: it
+enables exactly what was found (plus what is already enabled on disk) and
+takes keys from the environment only — DeepInfra's key is the `DEEPINFRA_KEY`
+variable — so it is safe to run non-interactively. `quotamon providers` prints
+the same table plus an `on`/`off` column read from the config, and exits `3`
+with the setup hint when the config file does not exist yet.
+
 ## Waybar
 
 Add the custom module to the Waybar configuration:
