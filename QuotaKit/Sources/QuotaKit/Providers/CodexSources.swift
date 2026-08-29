@@ -8,6 +8,15 @@ public enum Codex {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
     }
 
+    /// The ChatGPT backend sits behind bot protection and refuses plain HTTP
+    /// clients, so no live source is wired up unless the user points us at a
+    /// reachable endpoint themselves. Quota comes from the session rollouts.
+    public static var liveSourceIfConfigured: (any QuotaSource)? {
+        ProcessInfo.processInfo.environment["QUOTA_MONITOR_CODEX_USAGE_URL"]
+            .flatMap(URL.init(string:))
+            .map { CodexLiveSource(endpoint: $0) }
+    }
+
     /// Builds a `QuotaWindow` from Codex's `{used_percent, window_minutes, resets_at}`.
     static func window(from value: JSONValue, id: String) -> QuotaWindow? {
         guard let used = value.firstValue(forAnyKey: ["used_percent", "usedPercent"])?.double else {
@@ -100,12 +109,19 @@ public struct CodexLocalSource: QuotaSource {
                   let limits = root.firstValue(forKey: "rate_limits"),
                   let observedAt = root["timestamp"]?.date
                     ?? file.contentModifiedDate,
-                  let snapshot = Codex.snapshot(
+                  var snapshot = Codex.snapshot(
                     fromRateLimits: limits,
                     observedAt: observedAt,
                     origin: .local
                   )
             else { continue }
+
+            let now = Date()
+            if !snapshot.windows.contains(where: { $0.currentUsedPercent(asOf: now) != nil }) {
+                snapshot.status = .needsSetup(
+                    "ChatGPT reports usage only after a Codex turn — last reading \(QuotaFormat.age(snapshot.age(asOf: now)))"
+                )
+            }
             return snapshot
         }
 

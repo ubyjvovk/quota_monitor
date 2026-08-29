@@ -25,7 +25,7 @@ public enum ProviderCatalog {
                 providerID: Codex.providerID,
                 displayName: Codex.displayName,
                 local: CodexLocalSource(),
-                live: CodexLiveSource(),
+                live: Codex.liveSourceIfConfigured,
                 liveEnabled: isLiveEnabled(Codex.providerID)
             ),
         ]
