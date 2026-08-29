@@ -61,6 +61,8 @@ observation age, and non-OK status.
 
 ## Providers
 
+Supported providers are Claude, ChatGPT / Codex, and Grok.
+
 ### Claude
 
 The live source reads Claude Code's OAuth credential JSON. On macOS it runs

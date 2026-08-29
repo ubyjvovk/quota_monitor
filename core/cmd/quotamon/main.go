@@ -134,6 +134,9 @@ type diagnosticResult struct {
 	diagnosticProbe
 	provider snapshot.Provider
 	err      error
+	// skipped marks a live source disabled by --no-live; such a result has no
+	// provider or error and renders a discoverable placeholder instead of probing.
+	skipped bool
 }
 
 func probeAll(ctx context.Context, providers []hybrid.Provider) []diagnosticResult {
@@ -142,27 +145,45 @@ func probeAll(ctx context.Context, providers []hybrid.Provider) []diagnosticResu
 		if provider.Local != nil {
 			probes = append(probes, diagnosticProbe{providerName: provider.DisplayName, origin: "local", source: provider.Local})
 		}
-		if provider.LiveEnabled && provider.Live != nil {
+		if provider.Live != nil && provider.LiveEnabled {
 			probes = append(probes, diagnosticProbe{providerName: provider.DisplayName, origin: "live", source: provider.Live})
 		}
 	}
 
-	results := make([]diagnosticResult, len(probes))
+	results := make([]diagnosticResult, 0, len(probes)+len(providers))
+	probed := make([]diagnosticResult, len(probes))
 	var group sync.WaitGroup
 	for index := range probes {
 		group.Add(1)
 		go func(index int) {
 			defer group.Done()
 			provider, err := probes[index].source.Fetch(ctx)
-			results[index] = diagnosticResult{diagnosticProbe: probes[index], provider: provider, err: err}
+			probed[index] = diagnosticResult{diagnosticProbe: probes[index], provider: provider, err: err}
 		}(index)
 	}
 	group.Wait()
+	results = append(results, probed...)
+
+	// A live source disabled by --no-live is skipped, not silently dropped, so a
+	// live-only provider stays discoverable in check output without ever touching
+	// credentials or the network. Providers with no local source print no local line.
+	for _, provider := range providers {
+		if provider.Live != nil && !provider.LiveEnabled {
+			results = append(results, diagnosticResult{
+				diagnosticProbe: diagnosticProbe{providerName: provider.DisplayName, origin: "live"},
+				skipped:         true,
+			})
+		}
+	}
 	return results
 }
 
 func writeDiagnostics(writer io.Writer, results []diagnosticResult) {
 	for _, result := range results {
+		if result.skipped {
+			fmt.Fprintf(writer, "%s %s: skipped (--no-live)\n", result.providerName, result.origin)
+			continue
+		}
 		if result.err != nil {
 			fmt.Fprintf(writer, "%s %s: %s: %s\n", result.providerName, result.origin, errorKind(result.err), result.err)
 			continue

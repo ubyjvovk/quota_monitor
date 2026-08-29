@@ -117,7 +117,7 @@ func TestCheckReportsEachSourceAndAlwaysSucceeds(t *testing.T) {
 	}
 }
 
-func TestNoLiveNeverProbesTheLiveSource(t *testing.T) {
+func TestNoLiveNeverProbesTheLiveSourceAndLabelsItSkipped(t *testing.T) {
 	var liveCalls atomic.Int32
 	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
 	configured := []hybrid.Provider{{
@@ -128,8 +128,33 @@ func TestNoLiveNeverProbesTheLiveSource(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	exit := runWithFactory([]string{"check", "--no-live"}, &stdout, &stderr, func() time.Time { return now }, fixedFactory(configured))
-	if exit != 0 || liveCalls.Load() != 0 || strings.Contains(stdout.String(), " live:") {
-		t.Fatalf("run(check --no-live) exit = %d, live calls = %d, output = %q", exit, liveCalls.Load(), stdout.String())
+	if exit != 0 || liveCalls.Load() != 0 {
+		t.Fatalf("run(check --no-live) exit = %d, live calls = %d", exit, liveCalls.Load())
+	}
+	// The disabled live source is reported as skipped, not probed and not absent.
+	if !strings.Contains(stdout.String(), "Claude local: ok") || !strings.Contains(stdout.String(), "Claude live: skipped (--no-live)") {
+		t.Fatalf("check --no-live output = %q", stdout.String())
+	}
+}
+
+func TestCheckWithNoLiveShowsALiveOnlyProviderAsSkippedWithoutALocalLine(t *testing.T) {
+	configured := []hybrid.Provider{{
+		ID: "grok", DisplayName: "Grok",
+		// Local is nil for a live-only provider, mirroring the registry.
+		Live: commandStubSource{id: "grok", displayName: "Grok", origin: snapshot.OriginLive},
+	}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runWithFactory([]string{"check", "--no-live"}, &stdout, &stderr, time.Now, fixedFactory(configured))
+	if exit != 0 || stderr.Len() != 0 {
+		t.Fatalf("run(check --no-live) exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Grok live: skipped (--no-live)") {
+		t.Fatalf("check --no-live output = %q, want Grok skipped line", stdout.String())
+	}
+	// No local source should produce no local line, not a fabricated failure.
+	if strings.Contains(stdout.String(), " local:") {
+		t.Fatalf("check --no-live output has an unexpected local line: %q", stdout.String())
 	}
 }
 

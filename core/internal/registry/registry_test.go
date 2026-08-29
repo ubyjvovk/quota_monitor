@@ -6,6 +6,7 @@ import (
 
 	"quotamon/internal/providers/claude"
 	"quotamon/internal/providers/codex"
+	"quotamon/internal/providers/grok"
 	"quotamon/internal/registry"
 )
 
@@ -20,11 +21,11 @@ func TestAllReturnsStableProvidersAndHonoursLivePolicy(t *testing.T) {
 		Env:         func(string) string { return "" },
 	})
 
-	if len(providers) != 2 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID {
+	if len(providers) != 3 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID {
 		t.Fatalf("All() order = %#v", providers)
 	}
-	if providers[0].LiveEnabled || !providers[1].LiveEnabled {
-		t.Fatalf("All() live policy = Claude %v, Codex %v", providers[0].LiveEnabled, providers[1].LiveEnabled)
+	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled {
+		t.Fatalf("All() live policy = Claude %v, Codex %v, Grok %v", providers[0].LiveEnabled, providers[1].LiveEnabled, providers[2].LiveEnabled)
 	}
 	claudeLocal, ok := providers[0].Local.(claude.LocalSource)
 	if !ok || claudeLocal.MirrorPath != filepath.Join(mirrorDirectory, "claude-usage.json") {
@@ -36,6 +37,12 @@ func TestAllReturnsStableProvidersAndHonoursLivePolicy(t *testing.T) {
 	}
 	if _, ok := providers[1].Live.(codex.AppServerSource); !ok {
 		t.Fatalf("Codex live = %T, want AppServerSource", providers[1].Live)
+	}
+	if providers[2].Local != nil {
+		t.Fatalf("Grok local = %T, want nil", providers[2].Local)
+	}
+	if _, ok := providers[2].Live.(grok.LiveSource); !ok {
+		t.Fatalf("Grok live = %T, want LiveSource", providers[2].Live)
 	}
 }
 
