@@ -128,17 +128,61 @@ func runAppServer(ctx context.Context, requests []byte) ([]byte, error) {
 		_ = command.Wait()
 		return nil, err
 	}
-	if err := stdin.Close(); err != nil {
+
+	var output bytes.Buffer
+	foundReply := false
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		_, _ = output.Write(line)
+		_ = output.WriteByte('\n')
+
+		root, err := jsonx.Parse(line)
+		if err != nil {
+			continue
+		}
+		idValue, ok := jsonx.Get(root, "id")
+		if !ok {
+			continue
+		}
+		id, ok := jsonx.Float(idValue)
+		if ok && id == 2 {
+			foundReply = true
+			break
+		}
+	}
+	scanErr := scanner.Err()
+	closeErr := stdin.Close()
+
+	if !foundReply {
 		_ = command.Wait()
-		return nil, err
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return output.Bytes(), nil
 	}
-	output, readErr := io.ReadAll(stdout)
-	waitErr := command.Wait()
-	if readErr != nil {
-		return nil, readErr
+
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- command.Wait()
+	}()
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case waitErr := <-waitDone:
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		if waitErr != nil {
+			return nil, waitErr
+		}
+	case <-timer.C:
+		_ = command.Process.Kill()
+		<-waitDone
 	}
-	if waitErr != nil {
-		return nil, waitErr
-	}
-	return output, nil
+	return output.Bytes(), nil
 }

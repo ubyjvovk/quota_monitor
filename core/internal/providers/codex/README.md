@@ -8,6 +8,9 @@ bearer tokens inside the vendor CLI. The local fallback reads the last
 from `~/.codex/auth.json` only when the caller constructs it after
 `QUOTA_MONITOR_CODEX_USAGE_URL` is set.
 
+The app-server runner keeps stdin open until the `id: 2` reply arrives, then
+closes stdin and reaps the process.
+
 App-server output is newline-delimited JSON-RPC mixed with initialization
 replies and notifications. The parser selects only the reply whose `id` is
 `2`, then reads `result.rateLimits` by explicit path. It must not recursively
