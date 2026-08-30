@@ -488,3 +488,9 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   is complete: panel + widget in SF Mono Light. Widget needs the user's team
   id in `Config/Signing.xcconfig` (+ `-AppGroup` variant) to be installable.
   Board drained (33 done).
+- 2026-08-30 18:20 — **T-0036 accepted on master**: menu bar icon bars now in
+  snapshot order (= panel order); previously `rankedProviders`, which the user
+  read as misleading. PM built, re-rendered `docs/menubar.png`, relaunched.
+  Board drained (34 done). User asked about shipping DMGs from GitHub —
+  answered (tag-triggered Actions on macos runner; Developer ID +
+  notarytool needed for Gatekeeper); not ticketed unless asked.
