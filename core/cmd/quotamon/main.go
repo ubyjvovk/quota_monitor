@@ -24,9 +24,9 @@ import (
 	"quotamon/internal/source"
 )
 
-const usageText = `Usage: quotamon [--no-live] [--fresh] [--color=auto|always|never]
-       quotamon --json [--no-live] [--fresh] [--color=auto|always|never]
-       quotamon <command> [--no-live] [--fresh] [--color=auto|always|never]
+const usageText = `Usage: quotamon [--demo] [--no-live] [--fresh] [--color=auto|always|never]
+       quotamon --json [--demo] [--no-live] [--fresh] [--color=auto|always|never]
+       quotamon <command> [--demo] [--no-live] [--fresh] [--color=auto|always|never]
 
 Commands:
   snapshot  Print the normalized quota snapshot as JSON
@@ -38,6 +38,7 @@ Commands:
   config    Inspect or update config: path, get [--json], set <provider> [flags]
 
 Options:
+  --demo                    Render representative built-in data without setup
   --no-live                 Skip live sources
   --fresh                   Bypass stale-token cached readings
   --timeout <seconds>       Fetch budget in seconds; any positive number
@@ -87,6 +88,7 @@ func runWithDependencies(args []string, stdin io.Reader, stdout, stderr io.Write
 		}
 	}
 
+	args, demo, demoValid := parseDemoArgument(args)
 	args, colorMode, colorValid := parseColorArgument(args)
 	args, timeoutSeconds, timeoutSet, timeoutValid := parseTimeoutArgument(args)
 	command, liveEnabled, fresh, yes, help, valid := parseArguments(args)
@@ -94,9 +96,13 @@ func runWithDependencies(args []string, stdin io.Reader, stdout, stderr io.Write
 		fmt.Fprint(stdout, usageText)
 		return 0
 	}
-	if !valid || !colorValid || !timeoutValid {
+	if !valid || !demoValid || !colorValid || !timeoutValid || (demo && command != "table" && command != "snapshot" && command != "waybar") {
 		fmt.Fprint(stderr, usageText)
 		return 2
+	}
+	if demo {
+		result := demoSnapshot(now())
+		return writeSnapshot(command, result, stdout, stderr, tableColorEnabled(colorMode, stdout))
 	}
 
 	// The fetch budget is the flag when set, else the environment variable,
@@ -134,12 +140,43 @@ func runWithDependencies(args []string, stdin io.Reader, stdout, stderr io.Write
 	configured := providers(registry.Options{LiveEnabled: func(string) bool { return liveEnabled }, Config: cfg, Fresh: fresh})
 
 	switch command {
-	case "table":
+	case "table", "snapshot", "waybar":
 		result := fetchAll(configured, now, fetchTimeout)
-		fmt.Fprintln(stdout, renderTableWithColor(result, result.GeneratedAt.Time, tableColorEnabled(colorMode, stdout)))
+		return writeSnapshot(command, result, stdout, stderr, tableColorEnabled(colorMode, stdout))
+	case "check":
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+		writeDiagnostics(stdout, probeAll(ctx, configured, now()))
+		return 0
+	default:
+		panic("validated command was not handled")
+	}
+}
+
+func parseDemoArgument(args []string) ([]string, bool, bool) {
+	filtered := make([]string, 0, len(args))
+	found := false
+	for _, argument := range args {
+		if argument != "--demo" {
+			filtered = append(filtered, argument)
+			continue
+		}
+		if found {
+			return filtered, false, false
+		}
+		found = true
+	}
+	return filtered, found, true
+}
+
+// writeSnapshot is the single output path for fetched and representative data,
+// keeping documentation examples subject to the production renderers.
+func writeSnapshot(command string, result snapshot.Snapshot, stdout, stderr io.Writer, colorEnabled bool) int {
+	switch command {
+	case "table":
+		fmt.Fprintln(stdout, renderTableWithColor(result, result.GeneratedAt.Time, colorEnabled))
 		return windowExitStatus(result)
 	case "snapshot":
-		result := fetchAll(configured, now, fetchTimeout)
 		encoded, err := result.Encode()
 		if err != nil {
 			fmt.Fprintf(stderr, "encode snapshot: %v\n", err)
@@ -148,19 +185,13 @@ func runWithDependencies(args []string, stdin io.Reader, stdout, stderr io.Write
 		fmt.Fprintln(stdout, string(encoded))
 		return windowExitStatus(result)
 	case "waybar":
-		result := fetchAll(configured, now, fetchTimeout)
 		if err := json.NewEncoder(stdout).Encode(renderWaybar(result, result.GeneratedAt.Time)); err != nil {
 			fmt.Fprintf(stderr, "encode Waybar payload: %v\n", err)
 			return 1
 		}
 		return 0
-	case "check":
-		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
-		defer cancel()
-		writeDiagnostics(stdout, probeAll(ctx, configured, now()))
-		return 0
 	default:
-		panic("validated command was not handled")
+		panic("snapshot output requested for unsupported command")
 	}
 }
 
