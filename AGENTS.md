@@ -14,14 +14,19 @@ reading with an explanatory status. Everything normalises to `ProviderSnapshot`
 **Current focus is the Go core port (`core/`) — read `GO-PORT.md`, then
 `PROVIDERS.md`.** The Swift `QuotaKit` fetchers are frozen (bug-fix only) and
 serve as the reference semantics; `quotactl` is the parity oracle. The macOS
-menu-bar app and widget are ON HOLD.
+menu-bar app is live again (rebuilt on the core, T-0031) and its panel is
+*literally the console table*: `ConsoleTable` (QuotaKit/Support, a Swift port
+of `core/cmd/quotamon/table.go`, golden-pinned to `quotamon --demo`) drawn in
+SF Mono with the console palette. Table layout changes must land in both
+`table.go` and `ConsoleTable.swift`.
 
 ## Layout
 - `QuotaKit/Sources/QuotaKit/Providers/` — per-provider sources. **Most work lands here.**
 - `QuotaKit/Sources/QuotaKit/Models/` — `ProviderSnapshot`, `QuotaWindow`, `UsagePace`.
 - `QuotaKit/Sources/QuotaKit/Support/` — `JSONValue` (loose JSON), `Keychain`, `QuotaFormat`.
 - `QuotaKit/Sources/QuotaKit/Engine/` — refresh loop + snapshot/history persistence.
-- `QuotaKit/Sources/QuotaKit/UI/` — SwiftUI helpers. **On hold, do not edit.**
+- `QuotaKit/Sources/QuotaKit/UI/` — SwiftUI shared by the app and the widget
+  (`ConsoleTheme`, widget view, preview data). Edit only when a ticket names it.
 - `QuotaKit/Sources/quotactl/main.swift` — the console tool.
 - `QuotaKit/Tests/QuotaKitTests/` — the whole suite, plus `Fixtures/`.
 - `App/`, `Widget/`, `QuotaMonitor.xcodeproj/`, `project.yml` — the macOS
