@@ -112,6 +112,49 @@ public enum Claude {
         )
     }
 
+    static func money(_ value: JSONValue?) -> String? {
+        guard let amountMinor = value?["amount_minor"]?.double else { return nil }
+        let exponentValue = value?["exponent"]?.double ?? 2
+        guard exponentValue >= 0,
+              exponentValue.rounded() == exponentValue,
+              exponentValue < Double(Int.max)
+        else { return nil }
+
+        let exponent = Int(exponentValue)
+        let amount = amountMinor / pow(10, Double(exponent))
+        let formatted = String(
+            format: "%.*f", locale: Locale(identifier: "en_US_POSIX"), exponent, amount
+        )
+        let currency = value?["currency"]?.string ?? "USD"
+        return currency == "USD" ? "$\(formatted)" : "\(formatted) \(currency)"
+    }
+
+    /// Reads prepaid funds only from `balance`; `used` and `limit` describe the
+    /// monthly extra-usage cap, so subtracting them would mislabel unused cap as cash.
+    static func credits(from spend: JSONValue) -> Credits {
+        let enabled = spend["enabled"]?.bool ?? true
+        let balance = money(spend["balance"])
+        let used = money(spend["used"])
+        let limit = money(spend["limit"])
+
+        let monthlySpend: String?
+        if let used, let limit {
+            monthlySpend = "\(used) of \(limit) this month"
+        } else if let used {
+            monthlySpend = "\(used) this month"
+        } else {
+            monthlySpend = nil
+        }
+
+        return Credits(
+            hasCredits: enabled && (spend["balance"]?["amount_minor"]?.double ?? 0) > 0,
+            unlimited: false,
+            balance: balance,
+            enabled: enabled,
+            spend: monthlySpend
+        )
+    }
+
     static func snapshot(
         fromRateLimits limits: JSONValue,
         observedAt: Date,
@@ -123,36 +166,7 @@ public enum Claude {
 
         let credits: Credits?
         if let spend = limits["spend"] {
-            let enabled = spend["enabled"]?.bool ?? true
-            let limit = spend["limit"]
-            let used = spend["used"]
-            let limitMinor = limit?["amount_minor"]?.double
-            let usedMinor = used?["amount_minor"]?.double
-            let exponentValue = limit?["exponent"]?.double ?? used?["exponent"]?.double
-            let remainingMinor = limitMinor.flatMap { limitAmount in
-                usedMinor.map { limitAmount - $0 }
-            }
-
-            let balance: String?
-            if let remainingMinor,
-               let exponentValue,
-               exponentValue >= 0,
-               exponentValue.rounded() == exponentValue
-            {
-                let exponent = Int(exponentValue)
-                balance = String(
-                    format: "%.*f", exponent, remainingMinor / pow(10, Double(exponent))
-                )
-            } else {
-                balance = nil
-            }
-
-            credits = Credits(
-                hasCredits: enabled && (remainingMinor ?? 0) > 0,
-                unlimited: false,
-                balance: balance,
-                enabled: enabled
-            )
+            credits = Claude.credits(from: spend)
         } else {
             credits = nil
         }

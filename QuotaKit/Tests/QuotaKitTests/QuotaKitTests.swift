@@ -11,6 +11,20 @@ private func fixture(_ name: String, _ ext: String) throws -> URL {
     try #require(Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Fixtures"))
 }
 
+private func claudeCredits(fromSpendJSON spend: String) throws -> Credits {
+    let json = """
+    {"five_hour":{"utilization":12},"spend":\(spend)}
+    """
+    let snapshot = try #require(
+        Claude.snapshot(
+            fromRateLimits: try JSONValue.parse(Data(json.utf8)),
+            observedAt: beforeAll,
+            origin: .live
+        )
+    )
+    return try #require(snapshot.credits)
+}
+
 /// Lays out a temp directory shaped like `~/.codex` and returns its root.
 private func makeCodexHome() throws -> URL {
     let home = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -234,8 +248,43 @@ struct CodexLiveConfigurationTests {
     #expect(snapshot.windows.allSatisfy { !excludedIDs.contains($0.id) })
     let credits = try #require(snapshot.credits)
     #expect(credits.enabled == false)
-    #expect(credits.balance == "20.00")
+    #expect(credits.balance == nil)
     #expect(credits.hasCredits == false)
+    #expect(credits.spend == "$0.00 of $20.00 this month")
+}
+
+@Test func claudeCreditsUseTheExplicitPrepaidBalance() throws {
+    let credits = try claudeCredits(fromSpendJSON: """
+    {"balance":{"amount_minor":1250,"exponent":2,"currency":"USD"},"enabled":true}
+    """)
+
+    #expect(credits.balance == "$12.50")
+    #expect(credits.hasCredits == true)
+}
+
+@Test func claudeDisabledSpendDoesNotReportAvailableCredits() throws {
+    let credits = try claudeCredits(fromSpendJSON: """
+    {"balance":{"amount_minor":1250,"exponent":2,"currency":"USD"},"enabled":false}
+    """)
+
+    #expect(credits.balance == "$12.50")
+    #expect(credits.hasCredits == false)
+}
+
+@Test func claudeSpendCanDescribeUsedMoneyWithoutALimit() throws {
+    let credits = try claudeCredits(fromSpendJSON: """
+    {"used":{"amount_minor":300}}
+    """)
+
+    #expect(credits.spend == "$3.00 this month")
+}
+
+@Test func claudeMoneyFormattingPreservesNonUSDCurrency() throws {
+    let credits = try claudeCredits(fromSpendJSON: """
+    {"balance":{"amount_minor":1250,"exponent":2,"currency":"EUR"}}
+    """)
+
+    #expect(credits.balance == "12.50 EUR")
 }
 
 @Test func claudeFallsBackToLegacyWindowsWhenLimitsAreAbsent() throws {
@@ -951,7 +1000,7 @@ private let oneDayTwentyOneHours = reportNow.addingTimeInterval(86_400 + 21 * 36
     #expect(text.contains("15d ago"))
 }
 
-@Test func consoleReportLabelsDisabledClaudeCreditsHonestly() throws {
+@Test func consoleReportDoesNotRenderTheMonthlyCapAsClaudeBalance() throws {
     let root = try JSONValue.parse(Data(contentsOf: fixture("claude-usage-live", "json")))
     let snapshot = try #require(
         Claude.snapshot(fromRateLimits: root, observedAt: reportNow, origin: .live)
@@ -959,7 +1008,7 @@ private let oneDayTwentyOneHours = reportNow.addingTimeInterval(86_400 + 21 * 36
 
     let text = ConsoleReport.render([snapshot], asOf: reportNow)
 
-    #expect(text.contains("20.00 (not enabled)"))
+    #expect(!text.contains("20.00 (not enabled)"))
     #expect(!text.contains("20.00 remaining"))
 }
 
