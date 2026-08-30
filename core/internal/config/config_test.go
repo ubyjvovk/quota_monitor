@@ -14,7 +14,6 @@ func TestSaveThenLoadRoundTripsWithPrivateStableJSON(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("QUOTA_MONITOR_DIR", directory)
 	input := Default()
-	// Default starts empty; add the providers this test checks the order of.
 	input.Providers["claude"] = Provider{Enabled: true}
 	input.Providers["codex"] = Provider{Enabled: true, Live: "app-server"}
 	input.Providers["deepinfra"] = Provider{Enabled: true, APIKey: "secret"}
@@ -86,12 +85,18 @@ func TestQuotaMonitorDirectoryOverridesTheConfigPath(t *testing.T) {
 	}
 }
 
-// Default offers no provider entries so setup (not a hard-coded list) decides
-// which providers appear in the file, and so an unsupported provider like Kimi
-// is never pinned off before it ships.
-func TestDefaultHasNoProviderEntries(t *testing.T) {
-	if got := len(Default().Providers); got != 0 {
-		t.Fatalf("Default().Providers has %d entries, want 0", got)
+func TestDefaultHasEveryProviderDisabled(t *testing.T) {
+	providers := Default().Providers
+	for _, id := range []string{"claude", "codex", "deepinfra", "grok", "kimi"} {
+		provider, found := providers[id]
+		if !found {
+			t.Errorf("Default().Providers is missing %q", id)
+		} else if provider.Enabled {
+			t.Errorf("Default().Providers[%q].Enabled = true, want false", id)
+		}
+	}
+	if got := len(providers); got != 5 {
+		t.Fatalf("Default().Providers has %d entries, want 5", got)
 	}
 }
 

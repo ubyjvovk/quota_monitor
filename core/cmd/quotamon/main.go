@@ -34,6 +34,8 @@ Commands:
   check     Probe each provider source independently
   setup     Configure providers interactively; --yes enables what was found
   providers List providers and whether each is enabled
+  discover  Probe local provider setup; --json prints machine-readable findings
+  config    Inspect or update config: path, get [--json], set <provider> [flags]
 
 Options:
   --no-live                 Skip live sources
@@ -66,6 +68,25 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() ti
 }
 
 func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time, providers providerFactory) int {
+	return runWithDependencies(args, stdin, stdout, stderr, now, providers, discover.All)
+}
+
+func runWithDependencies(args []string, stdin io.Reader, stdout, stderr io.Writer, now func() time.Time, providers providerFactory, allFindings func() []discover.Finding) int {
+	for _, argument := range args {
+		if argument == "--help" || argument == "-h" {
+			fmt.Fprint(stdout, usageText)
+			return 0
+		}
+	}
+	if len(args) > 0 {
+		switch args[0] {
+		case "discover":
+			return runDiscover(args[1:], stdout, stderr, allFindings)
+		case "config":
+			return runConfig(args[1:], stdout, stderr)
+		}
+	}
+
 	args, colorMode, colorValid := parseColorArgument(args)
 	args, timeoutSeconds, timeoutSet, timeoutValid := parseTimeoutArgument(args)
 	command, liveEnabled, fresh, yes, help, valid := parseArguments(args)
@@ -91,13 +112,14 @@ func runWithFactory(args []string, stdin io.Reader, stdout, stderr io.Writer, no
 		}
 	}
 
-	// setup and providers are the only commands that do not require a config:
-	// setup is how the user creates one, and providers reports its state.
+	// Machine-readable discovery and config commands return above because they
+	// exist to inspect or create the mandatory config. Setup and providers are
+	// the remaining commands that bypass the normal config gate.
 	switch command {
 	case "setup":
-		return runSetup(stdin, stdout, stderr, yes, discover.All)
+		return runSetup(stdin, stdout, stderr, yes, allFindings)
 	case "providers":
-		return runProviders(stdout, stderr, discover.All)
+		return runProviders(stdout, stderr, allFindings)
 	}
 
 	cfg, err := config.Load()

@@ -30,6 +30,15 @@ func runSetup(stdin io.Reader, stdout, stderr io.Writer, yes bool, allFindings f
 	newConfig := config.Default()
 	if loadErr == nil {
 		newConfig = existing
+	} else {
+		// Machine-readable defaults include the full provider catalog, but the
+		// wizard has always omitted providers discovery says are not supported.
+		// Keep that setup behavior while still sharing config.Default elsewhere.
+		for _, finding := range findings {
+			if !finding.Supported {
+				delete(newConfig.Providers, finding.ID)
+			}
+		}
 	}
 
 	fmt.Fprintln(stdout, "Looking for providers…")

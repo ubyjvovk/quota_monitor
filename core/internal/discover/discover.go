@@ -18,13 +18,13 @@ import (
 
 // Finding describes whether one provider's local credentials are available.
 type Finding struct {
-	ID          string
-	DisplayName string
-	Found       bool
-	Supported   bool
-	Detail      string
-	Hint        string
-	NeedsKey    bool
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	Found       bool   `json:"found"`
+	Supported   bool   `json:"supported"`
+	Detail      string `json:"detail"`
+	Hint        string `json:"hint"`
+	NeedsKey    bool   `json:"needsKey"`
 }
 
 type dependencies struct {

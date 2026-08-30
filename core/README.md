@@ -29,6 +29,10 @@ quotamon waybar             # one line of Waybar custom-module JSON
 quotamon check              # probe every source independently
 quotamon setup              # configure providers interactively
 quotamon providers          # list providers and whether each is enabled
+quotamon discover --json    # probe local setup as machine-readable JSON
+quotamon config path        # print the shared config path
+quotamon config get --json  # print the effective config
+quotamon config set claude --enabled=true
 ```
 
 The bare invocation fetches every provider and prints the human-readable table
@@ -87,9 +91,10 @@ The path is, in order of precedence:
 2. `$XDG_CONFIG_HOME/quotamon/config.json`;
 3. `~/.config/quotamon/config.json` (on every operating system).
 
-There is no default-on configuration: without the file every command except
-`--help`, `setup`, and `providers` tells you to run `quotamon setup` (and the
-`waybar` module renders a run-setup message instead of failing).
+There is no default-on configuration: without the file every fetching command
+tells you to run `quotamon setup` (and the `waybar` module renders a run-setup
+message instead of failing). `discover` and the `config` commands bypass this
+gate because graphical frontends use them to create and inspect the file.
 
 The file is versioned and lists each provider with its settings and an `enabled`
 flag:
@@ -114,8 +119,35 @@ empty the provider falls back to the `DEEPINFRA_KEY` environment variable.
 API keys may live in the file, but the config is always written with `0600`
 permissions, and a config that contains an `api_key` while carrying group or
 other read bits is refused with a message telling you to run `chmod 600 <path>`.
-Every command before `setup` demands the file be private; `setup` is how you
-create it.
+Every command that reads the file demands it be private; `setup` and
+`config set` are the supported ways to create it.
+
+The non-interactive setup surface consists of four commands:
+
+```sh
+quotamon discover [--json]
+quotamon config path
+quotamon config get [--json]
+quotamon config set <provider> [--enabled=true|false] [--api-key=<value>] [--live=app-server|http|off]
+```
+
+`discover` performs local credential probes only and needs no config. Its JSON
+form returns one object per provider in display order, with `id`, `displayName`,
+`found`, `supported`, `detail`, `hint`, and `needsKey` fields. Without `--json`
+it prints the same human-readable findings used by setup.
+
+`config path` prints the resolved path above. `config get` treats a missing file
+as the version 1 defaults, with every known provider disabled; when a file is
+present, its entries are merged over those defaults. Add `--json` for stable,
+machine-readable JSON, or omit it for an `id: on|off (detail)` summary. The
+summary reports only whether an API key is set and never prints its value.
+
+`config set` loads the existing file (or starts from the defaults), changes only
+the flags supplied for one known provider, and writes the result atomically with
+`0600` permissions. At least one setting flag is required. `--live` is valid
+only for `codex`, with `app-server`, `http`, or `off`; use an empty
+`--api-key=` value to clear a stored key. Success prints only `wrote <path>` and
+does not echo key material.
 
 A missing config exits `3` with `No config yet — run: quotamon setup` on
 stderr. `waybar` exits `0` and prints
