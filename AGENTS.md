@@ -24,9 +24,11 @@ menu-bar app and widget are ON HOLD.
 - `QuotaKit/Sources/QuotaKit/UI/` — SwiftUI helpers. **On hold, do not edit.**
 - `QuotaKit/Sources/quotactl/main.swift` — the console tool.
 - `QuotaKit/Tests/QuotaKitTests/` — the whole suite, plus `Fixtures/`.
-- `App/`, `Widget/`, `QuotaMonitor.xcodeproj/`, `project.yml` — **ON HOLD, do not edit.**
-  They are not built by the test command; changes there cannot be verified and
-  will be rejected.
+- `App/`, `Widget/`, `QuotaMonitor.xcodeproj/`, `project.yml` — the macOS
+  menu-bar app + widget. **Editable only on the `opus` lane** (runs outside
+  Seatbelt, so it can `xcodebuild`); sandboxed lanes cannot build these and
+  must not touch them. Tickets that edit here carry `capability: [macbuild]`
+  and `assignee: opus`.
 - `QuotaKit/.build/` — generated. Never edit, never commit.
 
 ## Go core (`core/`)
@@ -80,6 +82,12 @@ menu-bar app and widget are ON HOLD.
 - Tests: `bash .tigerteam/scripts/run-tests.sh` — the ONLY way to run tests.
   It runs `scripts/test-all.sh`: the Swift suite, then `go vet` + `go test`
   in `core/` once `core/go.mod` exists.
+- macOS app (opus lane only, outside Seatbelt): build + headless render:
+  `xcodegen generate && xcodebuild -project QuotaMonitor.xcodeproj -scheme QuotaMonitor -configuration Debug -derivedDataPath .build/xcode build`
+  then render screenshots without a display via the app's `QUOTA_MONITOR_RENDER`
+  path (see `App/DesignSnapshot.swift`). `run-tests.sh` (swift+go) is still the
+  shared gate; the app build is an extra check the opus worker runs itself and
+  the PM re-runs at review.
 - Run the console tool by hand:
   `swift run --disable-sandbox --package-path QuotaKit quotactl`
 

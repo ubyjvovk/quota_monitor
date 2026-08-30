@@ -83,8 +83,13 @@ engine = "claude"
 model = "opus"
 login_auth = true
 max_complexity = 3
-capabilities = ["frontier"]
-scale=2
+capabilities = ["frontier", "macbuild"]
+scale = 2
+# Outside Seatbelt (user-authorised 2026-08-30) so this lane can run
+# `xcodegen` + `xcodebuild` to compile/verify the macOS App & Widget, which the
+# sandboxed lanes cannot. Trusted-repo only; opus = claude engine on the user's
+# own login. Reserved for macbuild-tagged tickets; other work stays sandboxed.
+sandbox_profile = ""
 
 
 
