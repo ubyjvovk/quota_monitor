@@ -431,3 +431,25 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   worker. To let the lane self-verify, the user must allowlist those commands.
 - Supervisor down, board idle. Open: iOS/CloudKit, history/pace, Windows,
   AUR/install packaging, App Group signing for the widget (needs a team).
+
+## 2026-08-30 — feature/console-look (app panel = the console, literally)
+- Product owner: the terminal screenshot (`docs/console.png`) looks better than
+  the Tufte panel; the app must adopt the exact console look — same face (SF
+  Mono 13pt), same `█░` bars/columns/colouring, same spacing — with a light
+  counterpart following the system appearance. Header/footer/setup stay,
+  restyled.
+- **Decisions:** (a) the Go `table.go` is the single reference; `ConsoleReport`
+  (old quotactl layout) is NOT it. (b) Port it to Swift as `ConsoleTable`
+  in QuotaKit with a golden test pinned to the Go demo output, so the app
+  re-renders as `now` ticks (running `quotamon` for text would freeze
+  countdowns). (c) Swift `Credits` gains `spend` — it was silently dropping
+  the core's field, so DeepInfra's balance/spend rows could never render.
+  (d) App gets its own `ConsoleTheme`; `Tufte` stays for the widget. Panel
+  shows providers in snapshot order like the console (no re-ranking).
+  (e) Everything lands on **`feature/console-look`** (user wants an easy
+  undo); nothing touches master until the user approves the look.
+- Tickets: **T-0033** (C2, sandboxed, QuotaKit) → **T-0034** (C2, opus lane,
+  App/, depends on T-0033). Expect opus to hand T-0034 off unbuilt (allowlist
+  blocks xcodebuild); PM builds + renders + regenerates screenshots at review.
+- Finish: `tigerteam feature merge console-look` only on the user's say-so;
+  `tigerteam feature rm console-look` to discard.
