@@ -216,6 +216,7 @@ User-Agents, no cookies, no bot-protection workarounds.
 | ChatGPT live via `codex app-server` | **working** (0.9 s) — stdin must stay open until the `id: 2` reply; PROVIDERS.md corrected | T-0014 |
 | Phase 2: Grok, DeepInfra | **done** (T-0012, T-0013, T-0017) | all four providers live in one `quotamon` call on the reference Mac |
 | Bare `quotamon` human table, `--json` alias | **done** (T-0015, T-0020) | — |
+| Swift console table parity | **done** (T-0033) | `ConsoleTable` is golden-pinned to `quotamon --demo` for app use |
 | Config: mandatory JSON at `~/.config/quotamon/config.json` (or `$QUOTA_MONITOR_DIR`), keys allowed with 0600 enforced, exit 3 + hint when missing | **done** (T-0018) | — |
 | `quotamon setup` (local-only discovery → per-provider Y/n → key prompt → manual add) and `quotamon providers` | **done** (T-0019) | — |
 | User-facing docs rewrite | **done** (T-0016) | `README.md`, `core/README.md` |

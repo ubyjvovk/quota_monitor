@@ -1,0 +1,132 @@
+{
+  "generatedAt": "2026-08-30T14:32:27Z",
+  "providers": [
+    {
+      "id": "claude",
+      "displayName": "Claude",
+      "plan": "max",
+      "credits": {
+        "hasCredits": true,
+        "unlimited": false,
+        "balance": "20.00",
+        "enabled": false
+      },
+      "observedAt": "2026-08-30T14:32:27Z",
+      "origin": "live",
+      "status": {
+        "state": "ok"
+      },
+      "windows": [
+        {
+          "id": "session",
+          "label": "5h",
+          "kind": "session",
+          "usedPercent": 6,
+          "resetsAt": "2026-08-30T17:11:27Z"
+        },
+        {
+          "id": "weekly_all",
+          "label": "Week",
+          "kind": "weekly",
+          "usedPercent": 15,
+          "resetsAt": "2026-09-01T06:32:27Z"
+        },
+        {
+          "id": "weekly_scoped",
+          "label": "Fable wk",
+          "kind": "weekly",
+          "usedPercent": 23,
+          "resetsAt": "2026-09-01T06:32:27Z"
+        }
+      ]
+    },
+    {
+      "id": "codex",
+      "displayName": "ChatGPT",
+      "plan": "plus",
+      "observedAt": "2026-08-30T14:32:27Z",
+      "origin": "live",
+      "status": {
+        "state": "ok"
+      },
+      "windows": [
+        {
+          "id": "session",
+          "label": "5h",
+          "kind": "session",
+          "usedPercent": 100,
+          "resetsAt": "2026-08-30T14:40:27Z"
+        },
+        {
+          "id": "weekly",
+          "label": "Week",
+          "kind": "weekly",
+          "usedPercent": 31,
+          "resetsAt": "2026-09-05T01:32:27Z"
+        }
+      ]
+    },
+    {
+      "id": "grok",
+      "displayName": "Grok",
+      "observedAt": "2026-08-30T14:32:27Z",
+      "origin": "live",
+      "status": {
+        "state": "ok"
+      },
+      "windows": [
+        {
+          "id": "weekly",
+          "label": "Week",
+          "kind": "weekly",
+          "usedPercent": 63,
+          "resetsAt": "2026-09-02T03:32:27Z"
+        }
+      ]
+    },
+    {
+      "id": "deepinfra",
+      "displayName": "DeepInfra",
+      "plan": "pay-as-you-go",
+      "credits": {
+        "hasCredits": true,
+        "unlimited": false,
+        "balance": "$10.03",
+        "enabled": true,
+        "spend": "$8.00 this month"
+      },
+      "observedAt": "2026-08-30T14:32:27Z",
+      "origin": "live",
+      "status": {
+        "state": "ok"
+      },
+      "windows": []
+    },
+    {
+      "id": "kimi",
+      "displayName": "Kimi",
+      "plan": "basic",
+      "observedAt": "2026-08-30T14:32:27Z",
+      "origin": "live",
+      "status": {
+        "state": "ok"
+      },
+      "windows": [
+        {
+          "id": "session",
+          "label": "5h",
+          "kind": "session",
+          "usedPercent": 42,
+          "resetsAt": "2026-08-30T17:44:27Z"
+        },
+        {
+          "id": "weekly",
+          "label": "Week",
+          "kind": "weekly",
+          "usedPercent": 14,
+          "resetsAt": "2026-09-03T20:32:27Z"
+        }
+      ]
+    }
+  ]
+}
