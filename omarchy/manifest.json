@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "quotamon",
+  "name": "Quota Monitor",
+  "version": "1.0.0",
+  "author": "ubyjvovk",
+  "description": "LLM quota from quotamon: stacked-bar icon and dropdown",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Quota Monitor",
+    "description": "quotamon snapshot: stacked per-provider bars, windows, credits, and a refresh button",
+    "category": "AI",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "exec": "quotamon",
+      "refreshIntervalSec": 300
+    },
+    "schema": [
+      {
+        "key": "exec",
+        "type": "string",
+        "label": "quotamon command",
+        "defaultValue": "quotamon"
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 30,
+        "max": 3600,
+        "step": 30,
+        "defaultValue": 300
+      }
+    ]
+  }
+}

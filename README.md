@@ -1,7 +1,8 @@
 # Quota Monitor
 
 See how much of your LLM subscription quota you have left across every
-provider at once — in the terminal, the macOS menu bar, or a Waybar module.
+provider at once — in the terminal, the macOS menu bar, a Waybar module,
+or an Omarchy bar widget.
 It reads your **Claude** (Anthropic), **ChatGPT** (Codex), **Grok** (xAI),
 **DeepInfra**, and **Kimi** (Moonshot) accounts and shows one normalised view
 so you can tell, at a glance, which provider you are about to hit the ceiling
@@ -18,7 +19,8 @@ render sample data; your own numbers stay on your machine.</sub>
 
 The heavy lifting lives in [`core/`](core/README.md), a single static Go
 binary called **`quotamon`**. Everything above the normalised snapshot — the
-macOS app, the widget, the Waybar module — is a dumb renderer of it.
+macOS app, the widget, the Waybar module, the Omarchy bar plugin — is a
+dumb renderer of it.
 
 ## Quick start
 
@@ -90,7 +92,27 @@ make matrix               # darwin/arm64, linux/amd64, linux/arm64
 
 ## Omarchy / Waybar
 
-`quotamon` ships a Waybar custom module. Add this to your Waybar config:
+### Omarchy bar plugin
+
+[`omarchy/`](omarchy/README.md) is an Omarchy shell bar widget. The icon
+stacks one usage bar per provider (tightest window, coloured by severity),
+matching the macOS menu-bar glyph. Click opens a dropdown with a Refresh
+button.
+
+```bash
+mkdir -p ~/.config/omarchy/plugins/quotamon
+cp -a omarchy/. ~/.config/omarchy/plugins/quotamon/
+omarchy restart shell
+omarchy plugin enable quotamon --section center --after omarchy.clock
+```
+
+`quotamon` must be on `PATH`. After editing plugin files, remount with
+`omarchy restart shell` — a file-watch reload often leaves the old icon
+mounted.
+
+### Waybar
+
+`quotamon` also ships a Waybar custom module. Add this to your Waybar config:
 
 ```json
 "custom/quota": { "exec": "quotamon waybar", "return-type": "json",
@@ -191,6 +213,7 @@ QuotaKit/            macOS app core — Swift models, sources, engine (frozen)
   Sources/quotactl/  diagnostic CLI (the parity reference)
 App/                 SwiftUI menu-bar app (table, force refresh, setup pane)
 Widget/              WidgetKit extension (reads the shared snapshot)
+omarchy/             Omarchy shell bar plugin (stacked-bar icon + dropdown)
 docs/                README screenshots (regenerate: scripts/screenshots.sh)
 scripts/             build.sh, screenshots.sh, the Claude statusline mirror
 ```
