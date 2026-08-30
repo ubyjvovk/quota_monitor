@@ -1,17 +1,24 @@
 # Quota Monitor
 
-Quota Monitor shows how much of your LLM subscription quota you have left, as a
-small portable command-line tool called **`quotamon`** plus a Waybar module
-for tiling-window Linux desktops. It reads your **Claude** (Anthropic),
-**ChatGPT** (Codex), **Grok** (xAI) and **DeepInfra** accounts and prints one
-normalised table so you can see, at a glance, which provider you are about to
-hit your ceiling on. Kimi is recognised but exposes no quota endpoint yet, so
-it is not shown. A macOS menu-bar app and widget are planned (currently on
-hold — the new design is SwiftUI over the same core).
+See how much of your LLM subscription quota you have left across every
+provider at once — in the terminal, the macOS menu bar, or a Waybar module.
+It reads your **Claude** (Anthropic), **ChatGPT** (Codex), **Grok** (xAI),
+**DeepInfra**, and **Kimi** (Moonshot) accounts and shows one normalised view
+so you can tell, at a glance, which provider you are about to hit the ceiling
+on.
+
+<p align="center">
+  <img src="docs/console.png" alt="quotamon terminal output" width="46%">
+  &nbsp;&nbsp;
+  <img src="docs/app-light.png" alt="Quota Monitor menu-bar panel" width="42%">
+</p>
+
+<sub>Left: `quotamon` in the terminal. Right: the macOS menu-bar panel. Both
+render sample data; your own numbers stay on your machine.</sub>
 
 The heavy lifting lives in [`core/`](core/README.md), a single static Go
-binary. Everything above the normalised snapshot — the macOS app, the widget,
-the Waybar module — is a dumb renderer of it.
+binary called **`quotamon`**. Everything above the normalised snapshot — the
+macOS app, the widget, the Waybar module — is a dumb renderer of it.
 
 ## Quick start
 
@@ -108,8 +115,9 @@ provider are in [`PROVIDERS.md`](PROVIDERS.md).
 | Claude | Claude Code OAuth via the `security` CLI (Keychain) | `api.anthropic.com/api/oauth/usage` | ✅ live |
 | ChatGPT / Codex | handled by the vendor CLI, no token touched | `codex app-server` JSON-RPC (`account/rateLimits/read`) | ✅ live |
 | Grok | bearer token in `~/.grok/auth.json` | `cli-chat-proxy.grok.com/v1/billing?format=credits` | ✅ live |
-| DeepInfra | `DEEPINFRA_KEY` (env or config) | `api.deepinfra.com/payment/*` | ✅ live — spend, not quota |
-| Kimi | `~/.kimi-code/credentials/kimi-code.json` | none found | ❌ no quota endpoint |
+| DeepInfra | `DEEPINFRA_KEY` (env or config) | `api.deepinfra.com/payment/*` | ✅ live — prepaid balance + spend, no quota |
+| Kimi | token in `~/.kimi-code/credentials/kimi-code.json` | `api.kimi.com/coding/v1/usages` | ✅ live — weekly + 5h windows |
+| Replicate | — | API token exposes no spend; balance is browser-cookie-only | ✖ excluded (see [PROVIDERS.md](PROVIDERS.md)) |
 
 Each provider has up to **two** sources, and the tool prefers whichever is
 fresher *and* trustworthy. The **live** source talks to the account and is
@@ -140,26 +148,33 @@ otherwise the cached reading is shown *and* labelled with why it is stale.
   (`security`, `codex app-server`), use it over its private HTTP API.
 
 The sparkline / pace design you may have seen in older versions of this
-project belongs to the **macOS app** (currently on hold). It answers
+project belonged to an earlier macOS design. It answered
 "compared to what?" by drawing each window across its full span against a
 diagonal of even consumption — a number becomes a decision. That reasoning
-still stands and will return with the app.
+still stands; the current app keeps a simpler bar per window.
 
 ## macOS app & widget
 
-**On hold.** The SwiftUI menu-bar app and WidgetKit widget are paused while
-the UI is redesigned; the Swift fetchers are frozen at reference behaviour and
-nothing new is built there. When they resume, build as before:
+A SwiftUI menu-bar app (pictured above) shows the same table as the console,
+with a **Refresh** button, and a first-run setup pane so you never need the
+terminal. Build it:
 
 ```bash
 brew install xcodegen
-./scripts/build.sh
+./scripts/build.sh          # generates the project, builds, bundles quotamon
 ```
 
-The plan is that the app bundles the `quotamon` binary in its
-`Contents/MacOS/`, runs it on the refresh interval, and ingests the snapshot
-JSON — the widget keeps reading the shared snapshot store and never execs
-anything. See [GO-PORT.md](GO-PORT.md) → "Platform landings" for the detail.
+The app bundles the `quotamon` binary in `Contents/Resources/`, runs it on the
+refresh interval (and on demand from the button), and ingests the snapshot
+JSON. **First run:** if no config exists, the app shows a setup pane that
+discovers your providers and writes the config for you — the GUI equivalent of
+`quotamon setup`. The **widget** reads the shared snapshot only (it never
+execs); it needs an App Group, which needs a signing team — see
+[`Config/Signing.xcconfig`](Config/Signing.xcconfig). The menu-bar app works
+fully without one.
+
+Regenerate the screenshots in this README with `scripts/screenshots.sh`
+(sample data only).
 
 ## Layout
 
@@ -169,9 +184,10 @@ core/                portable Go core — the snapshot contract and every source
   internal/providers/ per-provider sources (claude, codex, grok, deepinfra)
 QuotaKit/            macOS app core — Swift models, sources, engine (frozen)
   Sources/quotactl/  diagnostic CLI (the parity reference)
-App/                 SwiftUI menu bar app (ON HOLD)
-Widget/              WidgetKit extension (ON HOLD)
-scripts/             build + the Claude statusline mirror installer
+App/                 SwiftUI menu-bar app (table, force refresh, setup pane)
+Widget/              WidgetKit extension (reads the shared snapshot)
+docs/                README screenshots (regenerate: scripts/screenshots.sh)
+scripts/             build.sh, screenshots.sh, the Claude statusline mirror
 ```
 
 ## Troubleshooting
