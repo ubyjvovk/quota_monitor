@@ -136,34 +136,39 @@ struct QuotaPanelView: View {
                     .padding(.top, 7)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 0) {
                 if setup != nil {
-                    Button {
+                    footerButton("Settings", "gearshape", help: "Choose providers") {
                         showingSetup.toggle()
-                    } label: {
-                        Label("Settings", systemImage: "gearshape").font(Tufte.meta(10))
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Tufte.textSecondary)
-                    .help("Choose providers")
-                    .accessibilityLabel("Settings")
+                    Spacer(minLength: 0)
                 }
 
-                Button("About") { AppAbout.show() }
-                    .buttonStyle(.plain)
-                    .font(Tufte.meta(10))
-                    .foregroundStyle(Tufte.textSecondary)
+                footerButton("About", "info.circle") { AppAbout.show() }
 
                 Spacer(minLength: 0)
 
-                Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.plain)
-                    .font(Tufte.meta(10))
-                    .foregroundStyle(Tufte.textSecondary)
+                footerButton("Quit", "power") { NSApplication.shared.terminate(nil) }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
+    }
+
+    /// One evenly-spaced footer action: icon + label, uniform styling.
+    private func footerButton(
+        _ title: String,
+        _ icon: String,
+        help: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon).font(Tufte.meta(10))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Tufte.textSecondary)
+        .help(help ?? title)
+        .accessibilityLabel(title)
     }
 
     /// A missing binary is a build fault and outranks any refresh error, which
