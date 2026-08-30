@@ -80,12 +80,14 @@ mirror payload, which uses `rate_limits` + `used_percentage`.
 unreleased server-side experiments, several report `0.0`, and showing them as
 real quota is wrong. The `limits` array excludes them for free.
 
-**Extra usage** lives in `spend`:
-`used.amount_minor`, `limit.amount_minor`, `limit.exponent`, `enabled`,
-`disabled_reason`. **`enabled` is load-bearing.** This account shows a `20.00`
-balance with `"enabled": false, "disabled_reason": "out_of_credits"` — the
-credits are not spendable, and reporting "20.00 remaining" tells the user they
-have headroom they do not have.
+**Credits.** The canonical `spend` object keeps distinct concepts separate:
+`spend.balance` is the prepaid balance, `spend.limit` is the monthly
+extra-usage cap, and `spend.used` is spend in the current month. `enabled`
+controls whether a positive balance is spendable; when false,
+`disabled_reason` explains why. Do not derive a balance by subtracting used
+from limit. That old mistake turned this account's `$20.00` monthly cap into a
+fictional `$20.00` prepaid balance even though `balance` was null and
+`disabled_reason` was `out_of_credits`.
 
 **Local fallback.** A statusline mirror script writes `rate_limits` to
 `~/.quota-monitor/claude-usage.json` (override dir with `QUOTA_MONITOR_DIR`).

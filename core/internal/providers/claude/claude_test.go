@@ -17,7 +17,7 @@ import (
 	"quotamon/internal/source"
 )
 
-func TestLiveFixtureKeepsCanonicalLimitsAndDisabledSpend(t *testing.T) {
+func TestLiveFixtureKeepsCanonicalLimits(t *testing.T) {
 	root := fixtureRoot(t, "claude-usage-live.json")
 	observedAt := time.Date(2026, 8, 29, 19, 0, 0, 0, time.UTC)
 	provider, ok := Snapshot(root, observedAt, snapshot.OriginLive, "max")
@@ -30,15 +30,6 @@ func TestLiveFixtureKeepsCanonicalLimitsAndDisabledSpend(t *testing.T) {
 		if strings.Contains(window.ID, "nimbus_quill") {
 			t.Fatalf("Snapshot() included codenamed window %q", window.ID)
 		}
-	}
-	if provider.Credits == nil {
-		t.Fatal("Snapshot().Credits is nil")
-	}
-	if provider.Credits.HasCredits || provider.Credits.Unlimited || provider.Credits.Enabled {
-		t.Fatalf("Snapshot().Credits = %#v, want disabled finite credits", provider.Credits)
-	}
-	if provider.Credits.Balance == nil || *provider.Credits.Balance != "20.00" {
-		t.Fatalf("Snapshot().Credits.Balance = %v, want 20.00", provider.Credits.Balance)
 	}
 }
 
@@ -212,31 +203,116 @@ func TestLiveSourceMapsActionableHTTPErrors(t *testing.T) {
 	}
 }
 
-func TestSpendBalanceHonoursEnabledState(t *testing.T) {
+func TestSpendCreditsFollowClaudeSemantics(t *testing.T) {
 	tests := []struct {
 		name           string
-		enabled        bool
+		fixture        string
+		payload        string
+		wantCredits    bool
+		wantEnabled    bool
 		wantHasCredits bool
+		wantBalance    string
+		wantSpend      string
 	}{
-		{name: "enabled positive balance is spendable", enabled: true, wantHasCredits: true},
-		{name: "disabled positive balance is not spendable", enabled: false, wantHasCredits: false},
+		{
+			name:        "live fixture separates monthly cap from absent balance",
+			fixture:     "claude-usage-live.json",
+			wantCredits: true,
+			wantSpend:   "$0.00 of $20.00 this month",
+		},
+		{
+			name: "enabled prepaid balance is available",
+			payload: `{
+				"five_hour":{"utilization":1},
+				"spend":{"enabled":true,"balance":{"amount_minor":1250,"exponent":2,"currency":"USD"}}
+			}`,
+			wantCredits:    true,
+			wantEnabled:    true,
+			wantHasCredits: true,
+			wantBalance:    "$12.50",
+		},
+		{
+			name: "money defaults to USD with two decimal places",
+			payload: `{
+				"five_hour":{"utilization":1},
+				"spend":{"balance":{"amount_minor":1250}}
+			}`,
+			wantCredits:    true,
+			wantEnabled:    true,
+			wantHasCredits: true,
+			wantBalance:    "$12.50",
+		},
+		{
+			name: "disabled prepaid balance is not available",
+			payload: `{
+				"five_hour":{"utilization":1},
+				"spend":{"enabled":false,"balance":{"amount_minor":1250,"exponent":2,"currency":"USD"}}
+			}`,
+			wantCredits: true,
+			wantBalance: "$12.50",
+		},
+		{
+			name: "used amount without a limit still reports monthly spend",
+			payload: `{
+				"five_hour":{"utilization":1},
+				"spend":{"used":{"amount_minor":300,"exponent":2,"currency":"USD"}}
+			}`,
+			wantCredits: true,
+			wantEnabled: true,
+			wantSpend:   "$3.00 this month",
+		},
+		{
+			name: "non-USD money uses a currency suffix",
+			payload: `{
+				"five_hour":{"utilization":1},
+				"spend":{"balance":{"amount_minor":1250,"exponent":2,"currency":"EUR"}}
+			}`,
+			wantCredits:    true,
+			wantEnabled:    true,
+			wantHasCredits: true,
+			wantBalance:    "12.50 EUR",
+		},
+		{
+			name:        "missing spend object omits credits",
+			payload:     `{"five_hour":{"utilization":1}}`,
+			wantCredits: false,
+		},
+		{
+			name:        "null spend object omits credits",
+			payload:     `{"five_hour":{"utilization":1},"spend":null}`,
+			wantCredits: false,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			root, err := jsonx.Parse([]byte(`{
-				"five_hour":{"utilization":1},
-				"spend":{"enabled":` + boolString(test.enabled) + `,"limit":{"amount_minor":2000,"exponent":2},"used":{"amount_minor":500,"exponent":2}}
-			}`))
-			if err != nil {
-				t.Fatal(err)
+			var root any
+			if test.fixture != "" {
+				root = fixtureRoot(t, test.fixture)
+			} else {
+				var err error
+				root, err = jsonx.Parse([]byte(test.payload))
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			provider, ok := Snapshot(root, time.Now(), snapshot.OriginLive, "")
-			if !ok || provider.Credits == nil {
+			if !ok {
 				t.Fatalf("Snapshot() = (%#v, %v)", provider, ok)
 			}
-			if provider.Credits.HasCredits != test.wantHasCredits || provider.Credits.Balance == nil || *provider.Credits.Balance != "15.00" {
+			if !test.wantCredits {
+				if provider.Credits != nil {
+					t.Fatalf("Snapshot().Credits = %#v, want nil", provider.Credits)
+				}
+				return
+			}
+			if provider.Credits == nil {
+				t.Fatal("Snapshot().Credits is nil")
+			}
+			if provider.Credits.Enabled != test.wantEnabled || provider.Credits.HasCredits != test.wantHasCredits || provider.Credits.Unlimited {
 				t.Fatalf("Snapshot().Credits = %#v", provider.Credits)
 			}
+			assertOptionalString(t, "Snapshot().Credits.Balance", provider.Credits.Balance, test.wantBalance)
+			assertOptionalString(t, "Snapshot().Credits.Spend", provider.Credits.Spend, test.wantSpend)
 		})
 	}
 }
@@ -293,9 +369,15 @@ func fixtureRoot(t *testing.T, name string) any {
 	return root
 }
 
-func boolString(value bool) string {
-	if value {
-		return "true"
+func assertOptionalString(t *testing.T, label string, got *string, want string) {
+	t.Helper()
+	if want == "" {
+		if got != nil {
+			t.Fatalf("%s = %q, want nil", label, *got)
+		}
+		return
 	}
-	return "false"
+	if got == nil || *got != want {
+		t.Fatalf("%s = %v, want %q", label, got, want)
+	}
 }

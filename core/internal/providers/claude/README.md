@@ -15,6 +15,12 @@ codenamed experimental buckets are not mistaken for user quota. If no usable
 `limits` array exists, the parser falls back to the statusline mirror's direct
 `five_hour` and `seven_day` nodes.
 
+Credits come from the canonical `spend` object: `balance` is prepaid money,
+`limit` is the monthly extra-usage cap, and `used` is this month's spend.
+`enabled` determines whether a positive balance is available, with
+`disabled_reason` explaining why it is not; the cap is never treated as a
+balance or reduced by spend to invent one.
+
 The local source reads `claude-usage.json` from `QUOTA_MONITOR_DIR`, or from
 `~/.quota-monitor` when the override is unset. It needs no credential or
 network access.
