@@ -12,6 +12,8 @@ public final class QuotaEngine {
     public private(set) var history: UsageHistory
     public private(set) var isRefreshing = false
     public private(set) var lastRefreshedAt: Date?
+    /// The most recent runner refresh error, cleared after a successful refresh.
+    public private(set) var lastError: String?
 
     public var settings: QuotaSettings {
         didSet {
@@ -23,13 +25,20 @@ public final class QuotaEngine {
 
     private let store: SnapshotStore
     private let historyStore: HistoryStore
+    private let runner: QuotamonRunner?
     private var refreshTask: Task<Void, Never>?
 
     public var isSharedWithWidget: Bool { store.isSharedWithWidget }
 
-    public init(store: SnapshotStore = SnapshotStore(), settings: QuotaSettings = .load()) {
+    /// Creates an engine, optionally sourcing snapshots from the Go core runner.
+    public init(
+        store: SnapshotStore = SnapshotStore(),
+        settings: QuotaSettings = .load(),
+        runner: QuotamonRunner? = nil
+    ) {
         self.store = store
         self.historyStore = HistoryStore(store: store)
+        self.runner = runner
         self.settings = settings
         // Show the last known numbers immediately rather than an empty window.
         self.snapshot = store.load() ?? .empty
@@ -41,6 +50,7 @@ public final class QuotaEngine {
         let scratch = SnapshotStore(appGroupID: nil)
         self.store = scratch
         self.historyStore = HistoryStore(store: scratch)
+        self.runner = nil
         self.settings = QuotaSettings()
         self.snapshot = snapshot
         self.history = history
@@ -55,10 +65,27 @@ public final class QuotaEngine {
 
     // MARK: - Refresh
 
+    /// Refreshes quota data using normal cache behavior.
     public func refresh() async {
+        await refresh(fresh: false)
+    }
+
+    /// Refreshes quota data, asking the Go core to bypass its caches when requested.
+    public func refresh(fresh: Bool) async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+
+        if let runner {
+            do {
+                let freshSnapshot = try await runner.snapshot(fresh: fresh)
+                accept(freshSnapshot)
+                lastError = nil
+            } catch {
+                lastError = error.localizedDescription
+            }
+            return
+        }
 
         let providers = makeProviders()
         var results: [ProviderSnapshot] = await withTaskGroup(of: ProviderSnapshot.self) { group in
@@ -76,16 +103,21 @@ public final class QuotaEngine {
             (order.firstIndex(of: $0.id) ?? .max) < (order.firstIndex(of: $1.id) ?? .max)
         }
 
+        let freshSnapshot = QuotaSnapshot(providers: results, generatedAt: Date())
+        accept(freshSnapshot)
+        lastError = nil
+    }
+
+    private func accept(_ freshSnapshot: QuotaSnapshot) {
         let now = Date()
-        let fresh = QuotaSnapshot(providers: results, generatedAt: now)
-        snapshot = fresh
+        snapshot = freshSnapshot
         lastRefreshedAt = now
 
         var updated = history
-        updated.record(fresh, at: now)
+        updated.record(freshSnapshot, at: now)
         history = updated
 
-        try? store.save(fresh)
+        try? store.save(freshSnapshot)
         try? historyStore.save(updated)
         WidgetRefresher.reloadAll()
     }
@@ -118,5 +150,13 @@ public final class QuotaEngine {
     public func stopAutoRefresh() {
         refreshTask?.cancel()
         refreshTask = nil
+    }
+}
+
+extension SnapshotStore {
+    // Tests need a real file-backed store without reaching into Application Support.
+    init(testDirectory directory: URL) {
+        self.directory = directory
+        self.isSharedWithWidget = false
     }
 }
