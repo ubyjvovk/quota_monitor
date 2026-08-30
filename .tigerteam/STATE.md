@@ -494,3 +494,15 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   Board drained (34 done). User asked about shipping DMGs from GitHub —
   answered (tag-triggered Actions on macos runner; Developer ID +
   notarytool needed for Gatekeeper); not ticketed unless asked.
+- 2026-08-30 18:40 — **T-0037/T-0038/T-0039 accepted on master.** Claude
+  credits: `spend.limit` is the monthly extra-usage cap, `spend.balance` the
+  prepaid balance — both parsers (Go + frozen Swift reference) had rendered
+  `limit − used` as a balance ("20.00 (not enabled)" on an account with $0).
+  Now `spend  $0.00 of $20.00 this month`; verified live on the owner's
+  account. Release pipeline: `.github/workflows/release.yml` (tag `v*` →
+  macos-15, universal Release build, `scripts/package.sh` DMG + quotamon
+  binaries + SHA256SUMS, gh-release; optional Developer ID sign/notarize via
+  secrets), `make matrix` now builds darwin/amd64. T-0039 needed one rework
+  (`format()`-quoted flags, `v` prefix, raw notary key, invented repo URL).
+  **Untested in CI until the owner pushes a tag** — pushing is theirs.
+  App rebuilt + relaunched. Board drained (37 done).
