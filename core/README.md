@@ -23,6 +23,7 @@ Run the commands from `core/`, or install the built `quotamon` binary on your
 
 ```sh
 quotamon                    # human-readable table (this is the default)
+quotamon --demo             # representative table without an account or config
 quotamon --json             # alias for `snapshot`
 quotamon snapshot           # normalized snapshot as JSON
 quotamon waybar             # one line of Waybar custom-module JSON
