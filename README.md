@@ -20,6 +20,21 @@ The heavy lifting lives in [`core/`](core/README.md), a single static Go
 binary called **`quotamon`**. Everything above the normalised snapshot — the
 macOS app, the widget, the Waybar module — is a dumb renderer of it.
 
+## Install
+
+Download the latest `Quota-Monitor-*-universal.dmg` from the [Releases](https://github.com/ubyjvovk/quota_monitor/releases) page and drag **Quota
+Monitor** into your Applications folder.
+
+Releases are built **unsigned (ad-hoc)** unless the maintainer has configured a
+Developer ID, so macOS may block the first launch. To allow it:
+
+- System Settings ▸ Privacy & Security ▸ click **Open Anyway** next to Quota
+  Monitor, or
+- `xattr -dr com.apple.quarantine "/Applications/Quota Monitor.app"`
+
+Linux / Waybar users don't need the DMG: grab `quotamon-linux-<arch>` from the
+same release (see [Omarchy / Waybar](#omarchy--waybar)).
+
 ## Quick start
 
 Build the binary, then let it discover your accounts:
@@ -226,6 +241,11 @@ Two notes:
 
 ## Contributing / for agents
 
+- **Releases:** `git tag vX.Y.Z && git push origin vX.Y.Z` runs
+  `.github/workflows/release.yml`, which builds the universal DMG plus the
+  standalone `quotamon` binaries and publishes them to the GitHub Release.
+  Signing and notarization switch on automatically when the secrets listed in
+  the workflow are present.
 - [`AGENTS.md`](AGENTS.md) — how to work here (layout, conventions, commands, gotchas).
 - [`PROVIDERS.md`](PROVIDERS.md) — the provider contract: endpoints, credentials, dead ends.
 - [`GO-PORT.md`](GO-PORT.md) — the design record and status of the Go core port.
