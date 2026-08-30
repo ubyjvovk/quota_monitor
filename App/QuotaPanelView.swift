@@ -38,8 +38,8 @@ struct QuotaPanelView: View {
 
             footer
         }
-        .frame(width: 320)
-        .background(Tufte.background)
+        .frame(width: ConsoleTheme.width)
+        .background(ConsoleTheme.background)
         .onReceive(clock) { now = $0 }
         .task { await detectFirstRun() }
     }
@@ -56,8 +56,8 @@ struct QuotaPanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Text("Quota Monitor")
-                    .font(Tufte.serif(13, .semibold))
-                    .foregroundStyle(Tufte.text)
+                    .font(ConsoleTheme.font)
+                    .foregroundStyle(ConsoleTheme.chrome)
 
                 Spacer(minLength: 0)
 
@@ -72,7 +72,7 @@ struct QuotaPanelView: View {
                     Image(systemName: "arrow.clockwise").font(.system(size: 12))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Tufte.textSecondary)
+                .foregroundStyle(ConsoleTheme.chrome)
                 .disabled(engine.isRefreshing || CoreBinary.url == nil)
                 .help("Refresh now")
                 .accessibilityLabel("Refresh now")
@@ -81,7 +81,7 @@ struct QuotaPanelView: View {
             .padding(.top, 10)
             .padding(.bottom, 8)
 
-            Rectangle().fill(Tufte.rule).frame(height: 0.5).opacity(0.6)
+            Rectangle().fill(ConsoleTheme.rule).frame(height: 1)
         }
     }
 
@@ -92,22 +92,12 @@ struct QuotaPanelView: View {
         if engine.snapshot.providers.isEmpty {
             empty
         } else {
-            let providers = engine.snapshot.rankedProviders(asOf: now)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(providers) { provider in
-                    // A hairline between blocks: separation with the least ink.
-                    if provider.id != providers.first?.id {
-                        Rectangle()
-                            .fill(Tufte.rule)
-                            .frame(height: 0.5)
-                            .opacity(0.6)
-                            .padding(.vertical, 10)
-                    }
-                    ProviderSection(provider: provider, now: now)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            // Snapshot order, not most-constrained-first: the console does not
+            // re-rank, and the whole point of this panel is that it matches.
+            ConsoleTableView(
+                lines: ConsoleTable.render(engine.snapshot.providers, asOf: now)
+            )
+            .padding(ConsoleTheme.padding)
         }
     }
 
@@ -115,22 +105,22 @@ struct QuotaPanelView: View {
         HStack(spacing: 8) {
             if engine.isRefreshing { ProgressView().controlSize(.small) }
             Text(engine.isRefreshing ? "Reading providers…" : "No readings yet.")
-                .font(Tufte.meta(10))
-                .foregroundStyle(Tufte.textSecondary)
+                .font(ConsoleTheme.font)
+                .foregroundStyle(ConsoleTheme.chrome)
         }
-        .padding(14)
+        .padding(ConsoleTheme.padding)
     }
 
     // MARK: - Footer
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Rectangle().fill(Tufte.rule).frame(height: 0.5).opacity(0.6)
+            Rectangle().fill(ConsoleTheme.rule).frame(height: 1)
 
             if let message = warning {
                 Text(message)
-                    .font(Tufte.meta(9))
-                    .foregroundStyle(Tufte.highlight)
+                    .font(ConsoleTheme.font)
+                    .foregroundStyle(ConsoleTheme.critical)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.top, 7)
@@ -163,10 +153,10 @@ struct QuotaPanelView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon).font(Tufte.meta(10))
+            Label(title, systemImage: icon).font(ConsoleTheme.font)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Tufte.textSecondary)
+        .foregroundStyle(ConsoleTheme.chrome)
         .help(help ?? title)
         .accessibilityLabel(title)
     }

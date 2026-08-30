@@ -25,20 +25,20 @@ struct SetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Choose providers")
-                .font(Tufte.serif(13, .semibold))
-                .foregroundStyle(Tufte.text)
+                .font(ConsoleTheme.font)
+                .foregroundStyle(ConsoleTheme.text)
 
             Text("Quota Monitor looked for credentials each provider's CLI already writes. Nothing was contacted.")
-                .font(Tufte.meta(9.5))
-                .foregroundStyle(Tufte.textSecondary)
+                .font(ConsoleTheme.font)
+                .foregroundStyle(ConsoleTheme.chrome)
                 .fixedSize(horizontal: false, vertical: true)
 
             if isLoading {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Looking…")
-                        .font(Tufte.meta(10))
-                        .foregroundStyle(Tufte.textSecondary)
+                        .font(ConsoleTheme.font)
+                        .foregroundStyle(ConsoleTheme.chrome)
                 }
                 .padding(.vertical, 4)
             } else {
@@ -49,8 +49,8 @@ struct SetupView: View {
 
             if let error {
                 Text(error)
-                    .font(Tufte.meta(9.5))
-                    .foregroundStyle(Tufte.highlight)
+                    .font(ConsoleTheme.font)
+                    .foregroundStyle(ConsoleTheme.critical)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -77,30 +77,30 @@ struct SetupView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(mark(for: finding))
-                    .font(Tufte.meta(10))
-                    .foregroundStyle(finding.found ? Tufte.text : Tufte.textSecondary)
+                    .font(ConsoleTheme.font)
+                    .foregroundStyle(finding.found ? ConsoleTheme.text : ConsoleTheme.chrome)
                     .frame(width: 12, alignment: .leading)
 
                 if finding.supported {
                     Toggle(isOn: binding(for: finding.id)) {
                         Text(finding.displayName)
-                            .font(Tufte.meta(11))
-                            .foregroundStyle(Tufte.text)
+                            .font(ConsoleTheme.font)
+                            .foregroundStyle(ConsoleTheme.text)
                     }
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                 } else {
                     Text(finding.displayName)
-                        .font(Tufte.meta(11))
-                        .foregroundStyle(Tufte.textSecondary)
+                        .font(ConsoleTheme.font)
+                        .foregroundStyle(ConsoleTheme.chrome)
                 }
 
                 Spacer(minLength: 0)
             }
 
             Text(finding.found ? finding.detail : "\(finding.detail) — \(finding.hint)")
-                .font(Tufte.meta(9))
-                .foregroundStyle(Tufte.textSecondary)
+                .font(ConsoleTheme.font)
+                .foregroundStyle(ConsoleTheme.chrome)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 18)
 

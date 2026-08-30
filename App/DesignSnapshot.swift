@@ -24,8 +24,8 @@ enum DesignSnapshot {
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             guard let nsAppearance = NSAppearance(named: appearance) else { continue }
 
-            // Tufte's colours come from NSAppearance, so the whole app has to
-            // adopt the appearance; a SwiftUI colorScheme override alone leaves
+            // ConsoleTheme's colours come from NSAppearance, so the whole app has
+            // to adopt the appearance; a SwiftUI colorScheme override alone leaves
             // them resolving light.
             NSApp.appearance = nsAppearance
             NSAppearance.current = nsAppearance
@@ -37,7 +37,7 @@ enum DesignSnapshot {
                 content: QuotaPanelView(setup: QuotamonSetup(runner: QuotamonRunner { _ in Data() }))
                     .environment(engine)
                     .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
-                    .frame(width: 320)
+                    .frame(width: ConsoleTheme.width)
             )
             renderer.scale = 2
 
@@ -68,56 +68,73 @@ enum DesignSnapshot {
         NSApplication.shared.terminate(nil)
     }
 
-    /// Invented data covering every case the panel must handle: a window near its
-    /// limit, one that has rolled over (rendered `—`, never `0%`), a cached
-    /// provider explaining itself, a switched-off credit balance, and a
-    /// pay-as-you-go provider with spend but no windows.
+    /// The core's own demo snapshot, transcribed from `core/cmd/quotamon/demo.go`.
+    ///
+    /// Deliberately the same five providers, windows and offsets `quotamon --demo`
+    /// prints, so `docs/app-*.png` and `docs/console.png` show the same numbers
+    /// and any drift between the two renderings is visible at a glance. Keep this
+    /// in step with `demoSnapshot` when that changes.
     static var sample: QuotaSnapshot {
         let now = Date()
+        let minute: TimeInterval = 60
+        let hour: TimeInterval = 3600
+        let day: TimeInterval = 86_400
         return QuotaSnapshot(
             providers: [
                 ProviderSnapshot(
                     id: "claude", displayName: "Claude", plan: "max",
                     windows: [
-                        QuotaWindow(id: "seven_day_opus", label: "Opus wk", kind: .weekly,
-                                    usedPercent: 93, resetsAt: now.addingTimeInterval(86_400 * 4),
-                                    windowMinutes: 10080),
-                        QuotaWindow(id: "five_hour", label: "5h", kind: .session,
-                                    usedPercent: 71, resetsAt: now.addingTimeInterval(3600 * 2),
+                        QuotaWindow(id: "session", label: "5h", kind: .session,
+                                    usedPercent: 6, resetsAt: now.addingTimeInterval(2 * hour + 39 * minute),
                                     windowMinutes: 300),
-                        QuotaWindow(id: "seven_day", label: "Week", kind: .weekly,
-                                    usedPercent: 24, resetsAt: now.addingTimeInterval(86_400 * 4),
+                        QuotaWindow(id: "weekly_all", label: "Week", kind: .weekly,
+                                    usedPercent: 15, resetsAt: now.addingTimeInterval(40 * hour),
+                                    windowMinutes: 10080),
+                        QuotaWindow(id: "weekly_scoped", label: "Fable wk", kind: .weekly,
+                                    usedPercent: 23, resetsAt: now.addingTimeInterval(40 * hour),
                                     windowMinutes: 10080),
                     ],
-                    credits: Credits(hasCredits: true, unlimited: false, balance: "$5.00", enabled: false),
+                    // Balance present but not spendable — rendered "(not enabled)".
+                    credits: Credits(hasCredits: true, unlimited: false, balance: "20.00", enabled: false),
                     observedAt: now, origin: .live
                 ),
                 ProviderSnapshot(
                     id: "codex", displayName: "ChatGPT", plan: "plus",
                     windows: [
-                        QuotaWindow(id: "primary", label: "5h", kind: .session,
-                                    usedPercent: 46, resetsAt: now.addingTimeInterval(3600 * 4),
+                        QuotaWindow(id: "session", label: "5h", kind: .session,
+                                    usedPercent: 100, resetsAt: now.addingTimeInterval(8 * minute),
                                     windowMinutes: 300),
-                        QuotaWindow(id: "secondary", label: "Week", kind: .weekly,
-                                    usedPercent: 62, resetsAt: now.addingTimeInterval(-3600),
+                        QuotaWindow(id: "weekly", label: "Week", kind: .weekly,
+                                    usedPercent: 31, resetsAt: now.addingTimeInterval(5 * day + 11 * hour),
                                     windowMinutes: 10080),
                     ],
-                    observedAt: now.addingTimeInterval(-7200), origin: .local,
-                    status: .needsSetup("Cached — live refresh failed: run `codex login`")
-                ),
-                ProviderSnapshot(
-                    id: "grok", displayName: "Grok", plan: "supergrok",
-                    windows: [
-                        QuotaWindow(id: "credits", label: "Week", kind: .weekly,
-                                    usedPercent: 12, resetsAt: now.addingTimeInterval(86_400 * 3),
-                                    windowMinutes: 10080),
-                    ],
-                    credits: Credits(hasCredits: true, unlimited: false, balance: "$24.10", enabled: true),
                     observedAt: now, origin: .live
                 ),
                 ProviderSnapshot(
-                    id: "deepinfra", displayName: "DeepInfra",
-                    credits: Credits(hasCredits: false, unlimited: true, balance: "$7.75 this month", enabled: true),
+                    id: "grok", displayName: "Grok",
+                    windows: [
+                        QuotaWindow(id: "weekly", label: "Week", kind: .weekly,
+                                    usedPercent: 63, resetsAt: now.addingTimeInterval(2 * day + 13 * hour),
+                                    windowMinutes: 10080),
+                    ],
+                    observedAt: now, origin: .live
+                ),
+                ProviderSnapshot(
+                    id: "deepinfra", displayName: "DeepInfra", plan: "pay-as-you-go",
+                    credits: Credits(hasCredits: true, unlimited: false, balance: "$10.03",
+                                     enabled: true, spend: "$8.00 this month"),
+                    observedAt: now, origin: .live
+                ),
+                ProviderSnapshot(
+                    id: "kimi", displayName: "Kimi", plan: "basic",
+                    windows: [
+                        QuotaWindow(id: "session", label: "5h", kind: .session,
+                                    usedPercent: 42, resetsAt: now.addingTimeInterval(3 * hour + 12 * minute),
+                                    windowMinutes: 300),
+                        QuotaWindow(id: "weekly", label: "Week", kind: .weekly,
+                                    usedPercent: 14, resetsAt: now.addingTimeInterval(4 * day + 6 * hour),
+                                    windowMinutes: 10080),
+                    ],
                     observedAt: now, origin: .live
                 ),
             ],
