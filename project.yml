@@ -34,6 +34,35 @@ targets:
         product: QuotaKit
       - target: QuotaWidget
         embed: true
+    # The app has no fetchers of its own: it execs the Go core. Building it here
+    # means the .app is always self-contained and can never drift from core/.
+    # Runs before the build phases so the binary is inside the bundle by the time
+    # Xcode signs it.
+    preBuildScripts:
+      - name: Bundle quotamon core
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+
+          # Xcode's PATH does not include Homebrew, which is where go lives here.
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          make -C core matrix
+
+          destination="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          mkdir -p "$destination"
+
+          arm64_slice="core/bin/quotamon-darwin-arm64"
+          amd64_slice="core/bin/quotamon-darwin-amd64"
+          if [ -f "$amd64_slice" ]; then
+            lipo -create "$arm64_slice" "$amd64_slice" -output "$destination/quotamon"
+          else
+            # `make matrix` cross-builds Linux, not darwin/amd64, so an Apple
+            # silicon host has one slice. A single-slice Mach-O is still valid;
+            # lipo would just refuse to "create" from one input.
+            cp "$arm64_slice" "$destination/quotamon"
+          fi
+          chmod +x "$destination/quotamon"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.quotamonitor.app
