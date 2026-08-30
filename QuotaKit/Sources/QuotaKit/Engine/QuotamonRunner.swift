@@ -33,7 +33,9 @@ public struct QuotamonRunner: Sendable {
 
     /// Fetches and decodes a snapshot, bypassing core caches when `fresh` is true.
     public func snapshot(fresh: Bool = false) async throws -> QuotaSnapshot {
-        var arguments = ["snapshot", "--json"]
+        // `snapshot` already emits JSON; the subcommand rejects a `--json` flag
+        // (that spelling is only the bare-table alias `quotamon --json`).
+        var arguments = ["snapshot"]
         if fresh { arguments.append("--fresh") }
 
         let data: Data

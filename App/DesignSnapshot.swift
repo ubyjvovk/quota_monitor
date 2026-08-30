@@ -45,6 +45,21 @@ enum DesignSnapshot {
             else { continue }
 
             try? png.write(to: URL(fileURLWithPath: "\(prefix)-\(name).png"))
+
+            // The status-bar icon, scaled up so it is legible in docs.
+            let icon = MenuBarIcon.image(for: engine.snapshot)
+            let scale: CGFloat = 8
+            let big = NSImage(size: NSSize(width: icon.size.width * scale,
+                                           height: icon.size.height * scale))
+            big.lockFocus()
+            NSGraphicsContext.current?.imageInterpolation = .none
+            icon.draw(in: NSRect(origin: .zero, size: big.size))
+            big.unlockFocus()
+            if let itiff = big.tiffRepresentation,
+               let ibitmap = NSBitmapImageRep(data: itiff),
+               let ipng = ibitmap.representation(using: .png, properties: [:]) {
+                try? ipng.write(to: URL(fileURLWithPath: "\(prefix)-menubar-\(name).png"))
+            }
         }
 
         NSApplication.shared.terminate(nil)

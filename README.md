@@ -159,6 +159,11 @@ A SwiftUI menu-bar app (pictured above) shows the same table as the console,
 with a **Refresh** button, and a first-run setup pane so you never need the
 terminal. Build it:
 
+<p align="left"><img src="docs/menubar.png" alt="menu-bar icon" height="22"></p>
+
+<sub>The status-bar icon stacks one usage bar per provider (tightest window,
+coloured by severity) into a single glyph.</sub>
+
 ```bash
 brew install xcodegen
 ./scripts/build.sh          # generates the project, builds, bundles quotamon

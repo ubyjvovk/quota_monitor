@@ -16,8 +16,8 @@ import Testing
 
         #expect(snapshot.providers.map(\.id) == ["claude", "kimi"])
         #expect(await arguments.values == [
-            ["snapshot", "--json"],
-            ["snapshot", "--json", "--fresh"],
+            ["snapshot"],
+            ["snapshot", "--fresh"],
         ])
     }
 
@@ -101,7 +101,7 @@ import Testing
 
         await engine.refresh(fresh: true)
 
-        #expect(await arguments.values == [["snapshot", "--json", "--fresh"]])
+        #expect(await arguments.values == [["snapshot", "--fresh"]])
     }
 
     private func fixtureData() throws -> Data {

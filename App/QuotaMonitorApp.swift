@@ -18,9 +18,10 @@ struct QuotaMonitorApp: App {
             QuotaPanelView(setup: setup)
                 .environment(engine)
         } label: {
-            // Rendered persistently in the status bar, so this is where the
-            // refresh loop is started and kept alive.
-            Text(QuotaFormat.menuBarTitle(for: engine.snapshot))
+            // A stacked-bar icon (one bar per provider), not text, so the menu
+            // bar stays icon-sized. Rendered persistently in the status bar, so
+            // this is where the refresh loop is started and kept alive.
+            Image(nsImage: MenuBarIcon.image(for: engine.snapshot))
                 .task {
                     // The screenshot path exits immediately; starting a refresh
                     // loop there would spawn a subprocess it never waits for.
