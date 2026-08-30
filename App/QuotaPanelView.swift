@@ -21,6 +21,8 @@ struct QuotaPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            header
+
             if let setup, showingSetup {
                 SetupView(
                     setup: setup,
@@ -46,6 +48,41 @@ struct QuotaPanelView: View {
     private var cancelSetup: (() -> Void)? {
         guard !engine.snapshot.providers.isEmpty else { return nil }
         return { showingSetup = false }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("Quota Monitor")
+                    .font(Tufte.serif(13, .semibold))
+                    .foregroundStyle(Tufte.text)
+
+                Spacer(minLength: 0)
+
+                if engine.isRefreshing {
+                    ProgressView().controlSize(.small)
+                }
+
+                Button {
+                    // fresh: true — the user asked *now*, so skip the core's caches.
+                    Task { await engine.refresh(fresh: true) }
+                } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Tufte.textSecondary)
+                .disabled(engine.isRefreshing || CoreBinary.url == nil)
+                .help("Refresh now")
+                .accessibilityLabel("Refresh now")
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+
+            Rectangle().fill(Tufte.rule).frame(height: 0.5).opacity(0.6)
+        }
     }
 
     // MARK: - Table
@@ -99,29 +136,25 @@ struct QuotaPanelView: View {
                     .padding(.top, 7)
             }
 
-            HStack(spacing: 10) {
-                Button("Refresh") {
-                    // fresh: true — the user asked *now*, so skip the core's caches.
-                    Task { await engine.refresh(fresh: true) }
-                }
-                .controlSize(.small)
-                .disabled(engine.isRefreshing || CoreBinary.url == nil)
-
-                if engine.isRefreshing { ProgressView().controlSize(.small) }
-
-                Spacer(minLength: 0)
-
+            HStack(spacing: 12) {
                 if setup != nil {
                     Button {
                         showingSetup.toggle()
                     } label: {
-                        Image(systemName: "gearshape").font(.system(size: 11))
+                        Label("Settings", systemImage: "gearshape").font(Tufte.meta(10))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Tufte.textSecondary)
                     .help("Choose providers")
-                    .accessibilityLabel("Choose providers")
+                    .accessibilityLabel("Settings")
                 }
+
+                Button("About") { AppAbout.show() }
+                    .buttonStyle(.plain)
+                    .font(Tufte.meta(10))
+                    .foregroundStyle(Tufte.textSecondary)
+
+                Spacer(minLength: 0)
 
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.plain)
