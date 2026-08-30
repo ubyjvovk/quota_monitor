@@ -22,7 +22,7 @@ macOS app, the widget, the Waybar module — is a dumb renderer of it.
 
 ## Install
 
-Download the latest `Quota-Monitor-*-universal.dmg` from the [Releases](https://github.com/quotamonitor/quota-monitor/releases) page and drag **Quota
+Download the latest `Quota-Monitor-*-universal.dmg` from the [Releases](https://github.com/ubyjvovk/quota_monitor/releases) page and drag **Quota
 Monitor** into your Applications folder.
 
 Releases are built **unsigned (ad-hoc)** unless the maintainer has configured a
