@@ -218,7 +218,7 @@ func Snapshot(root any, observedAt time.Time, origin snapshot.Origin, plan strin
 	}
 
 	var credits *snapshot.Credits
-	if spend, ok := jsonx.Get(root, "spend"); ok {
+	if spend, ok := jsonx.Get(root, "spend"); ok && spend != nil {
 		enabled := true
 		if value, ok := jsonx.Get(spend, "enabled"); ok {
 			if parsed, valid := jsonx.Bool(value); valid {
@@ -226,28 +226,34 @@ func Snapshot(root any, observedAt time.Time, origin snapshot.Origin, plan strin
 			}
 		}
 
-		limitMinor, limitOK := getFloat(spend, "limit", "amount_minor")
-		usedMinor, usedOK := getFloat(spend, "used", "amount_minor")
-		remainingMinor := 0.0
-		hasRemaining := limitOK && usedOK
-		if hasRemaining {
-			remainingMinor = limitMinor - usedMinor
+		balanceObject, _ := jsonx.Get(spend, "balance")
+		balanceValue, balanceOK := money(balanceObject)
+		var balance *string
+		if balanceOK {
+			balance = &balanceValue
 		}
 
-		var balance *string
-		exponent, exponentOK := getInt(spend, "limit", "exponent")
-		if !exponentOK {
-			exponent, exponentOK = getInt(spend, "used", "exponent")
+		usedObject, _ := jsonx.Get(spend, "used")
+		used, usedOK := money(usedObject)
+		limitObject, _ := jsonx.Get(spend, "limit")
+		limit, limitOK := money(limitObject)
+		var spendSummary *string
+		switch {
+		case usedOK && limitOK:
+			value := used + " of " + limit + " this month"
+			spendSummary = &value
+		case usedOK:
+			value := used + " this month"
+			spendSummary = &value
 		}
-		if hasRemaining && exponentOK && exponent >= 0 {
-			formatted := fmt.Sprintf("%.*f", exponent, remainingMinor/math.Pow10(exponent))
-			balance = &formatted
-		}
+
+		balanceMinor, balanceAmountOK := getFloat(balanceObject, "amount_minor")
 		credits = &snapshot.Credits{
-			HasCredits: enabled && hasRemaining && remainingMinor > 0,
+			HasCredits: enabled && balanceOK && balanceAmountOK && balanceMinor > 0,
 			Unlimited:  false,
 			Balance:    balance,
 			Enabled:    enabled,
+			Spend:      spendSummary,
 		}
 	}
 
@@ -295,6 +301,33 @@ func getInt(root any, path ...string) (int, bool) {
 		return 0, false
 	}
 	return jsonx.Int(value)
+}
+
+func money(object any) (string, bool) {
+	amountMinor, ok := getFloat(object, "amount_minor")
+	if !ok {
+		return "", false
+	}
+
+	exponent := 2
+	if parsed, ok := getInt(object, "exponent"); ok {
+		exponent = parsed
+	}
+	if exponent < 0 {
+		return "", false
+	}
+
+	currency := "USD"
+	if value, ok := jsonx.Get(object, "currency"); ok {
+		if parsed, valid := jsonx.String(value); valid && parsed != "" {
+			currency = parsed
+		}
+	}
+	formatted := fmt.Sprintf("%.*f", exponent, amountMinor/math.Pow10(exponent))
+	if currency == "USD" {
+		return "$" + formatted, true
+	}
+	return formatted + " " + currency, true
 }
 
 func intPointer(value int) *int {
