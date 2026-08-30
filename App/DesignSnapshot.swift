@@ -79,19 +79,24 @@ enum DesignSnapshot {
         let minute: TimeInterval = 60
         let hour: TimeInterval = 3600
         let day: TimeInterval = 86_400
+        // The panel renders a moment after `sample` is built, with its own `now`,
+        // so an exact offset has already lost a few milliseconds by the time the
+        // countdown truncates it — 40h becomes "1d 15h". Go's demo renders at
+        // exactly `base` and never loses the unit; 30s of slack buys the same.
+        let slack: TimeInterval = 30
         return QuotaSnapshot(
             providers: [
                 ProviderSnapshot(
                     id: "claude", displayName: "Claude", plan: "max",
                     windows: [
                         QuotaWindow(id: "session", label: "5h", kind: .session,
-                                    usedPercent: 6, resetsAt: now.addingTimeInterval(2 * hour + 39 * minute),
+                                    usedPercent: 6, resetsAt: now.addingTimeInterval(2 * hour + 39 * minute + slack),
                                     windowMinutes: 300),
                         QuotaWindow(id: "weekly_all", label: "Week", kind: .weekly,
-                                    usedPercent: 15, resetsAt: now.addingTimeInterval(40 * hour),
+                                    usedPercent: 15, resetsAt: now.addingTimeInterval(40 * hour + slack),
                                     windowMinutes: 10080),
                         QuotaWindow(id: "weekly_scoped", label: "Fable wk", kind: .weekly,
-                                    usedPercent: 23, resetsAt: now.addingTimeInterval(40 * hour),
+                                    usedPercent: 23, resetsAt: now.addingTimeInterval(40 * hour + slack),
                                     windowMinutes: 10080),
                     ],
                     // Balance present but not spendable — rendered "(not enabled)".
@@ -102,10 +107,10 @@ enum DesignSnapshot {
                     id: "codex", displayName: "ChatGPT", plan: "plus",
                     windows: [
                         QuotaWindow(id: "session", label: "5h", kind: .session,
-                                    usedPercent: 100, resetsAt: now.addingTimeInterval(8 * minute),
+                                    usedPercent: 100, resetsAt: now.addingTimeInterval(8 * minute + slack),
                                     windowMinutes: 300),
                         QuotaWindow(id: "weekly", label: "Week", kind: .weekly,
-                                    usedPercent: 31, resetsAt: now.addingTimeInterval(5 * day + 11 * hour),
+                                    usedPercent: 31, resetsAt: now.addingTimeInterval(5 * day + 11 * hour + slack),
                                     windowMinutes: 10080),
                     ],
                     observedAt: now, origin: .live
@@ -114,7 +119,7 @@ enum DesignSnapshot {
                     id: "grok", displayName: "Grok",
                     windows: [
                         QuotaWindow(id: "weekly", label: "Week", kind: .weekly,
-                                    usedPercent: 63, resetsAt: now.addingTimeInterval(2 * day + 13 * hour),
+                                    usedPercent: 63, resetsAt: now.addingTimeInterval(2 * day + 13 * hour + slack),
                                     windowMinutes: 10080),
                     ],
                     observedAt: now, origin: .live
@@ -129,10 +134,10 @@ enum DesignSnapshot {
                     id: "kimi", displayName: "Kimi", plan: "basic",
                     windows: [
                         QuotaWindow(id: "session", label: "5h", kind: .session,
-                                    usedPercent: 42, resetsAt: now.addingTimeInterval(3 * hour + 12 * minute),
+                                    usedPercent: 42, resetsAt: now.addingTimeInterval(3 * hour + 12 * minute + slack),
                                     windowMinutes: 300),
                         QuotaWindow(id: "weekly", label: "Week", kind: .weekly,
-                                    usedPercent: 14, resetsAt: now.addingTimeInterval(4 * day + 6 * hour),
+                                    usedPercent: 14, resetsAt: now.addingTimeInterval(4 * day + 6 * hour + slack),
                                     windowMinutes: 10080),
                     ],
                     observedAt: now, origin: .live
