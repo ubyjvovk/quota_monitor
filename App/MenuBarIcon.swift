@@ -3,7 +3,8 @@ import QuotaKit
 
 /// The status-bar glyph: one thin horizontal bar per provider, stacked into a
 /// single compact icon, each filled to that provider's tightest-window usage and
-/// coloured by severity. A provider with no current reading shows an empty track.
+/// coloured by severity, stacked in the panel's (snapshot) order top to bottom.
+/// A provider with no current reading shows an empty track.
 ///
 /// This replaces a text title so the menu bar stays icon-sized no matter how many
 /// providers are configured.
@@ -11,7 +12,7 @@ enum MenuBarIcon {
 
     @MainActor
     static func image(for snapshot: QuotaSnapshot, now: Date = Date()) -> NSImage {
-        let providers = snapshot.rankedProviders(asOf: now)
+        let providers = snapshot.providers
         let size = NSSize(width: 20, height: 15)
 
         let image = NSImage(size: size, flipped: false) { rect in
@@ -21,7 +22,8 @@ enum MenuBarIcon {
             let radius = min(rowHeight / 2, 1.5)
 
             for index in 0..<count {
-                // Top provider (most constrained) draws first, at the top.
+                // Bars follow the panel's (snapshot) order, top to bottom, so bar N
+                // is always the panel's row N.
                 let y = rect.height - CGFloat(index + 1) * rowHeight - CGFloat(index) * gap
                 let track = NSRect(x: 0, y: y, width: rect.width, height: rowHeight)
 
