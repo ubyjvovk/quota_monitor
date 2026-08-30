@@ -464,3 +464,11 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   `tigerteam feature merge console-look`, discard with `feature rm`.
   Master untouched. Note for later: the T-0034 grep criterion
   `rankedProviders` was over-broad (MenuBarIcon legitimately ranks) — waived.
+- 2026-08-30 16:00 — **console-look MERGED to master** (`2517bce`, user: "bloody
+  perfect"). `tigerteam feature merge` refused because it assumes trunk =
+  `main` and this repo uses `master`; merged by hand with `git merge --no-ff`
+  on the clean root checkout, then removed the feature branch/worktree.
+  App rebuilt + relaunched from master via `scripts/build.sh`. README
+  screenshots already regenerated on the branch. Mac app is no longer "on
+  hold": its panel is the console table (`ConsoleTable` in QuotaKit, SF Mono
+  `ConsoleTheme` in App/). Widget still uses `Tufte`.
