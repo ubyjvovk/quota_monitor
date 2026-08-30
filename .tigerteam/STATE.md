@@ -400,3 +400,15 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   rate cap) — P0; T-0028 fetch budget 15 s + --timeout + cents rounding.
 - Findings worth keeping: Kimi TUI blocks on "Trust this folder?" outside
   trusted cwd; `kimi -p "/usage"` spends tokens; DeepInfra latency 2–7 s.
+
+### Board drained — 2026-08-30
+- 26 tickets accepted. Final wave: T-0026 (Kimi refresher process hygiene:
+  pgid group-kill, flock, ps-based orphan sweep, 10-min cap, Windows fallback),
+  T-0028 (fetch budget: --timeout / QUOTA_MONITOR_TIMEOUT, >0 rule, DeepInfra
+  per-call 12s, cents-rounded balance).
+- Replicate: NOT added — API token is identity-only, credit is cookie-gated
+  (dashboard). Excluded by the no-cookie rule; documented in PROVIDERS.md.
+- Full suite green (62 Swift + all Go pkgs); make matrix builds darwin/arm64,
+  linux/amd64, linux/arm64. Supervisor down. Board idle.
+- Open (needs user): Mac app cutover (App/ on hold), history/pace in Go,
+  Windows tray, AUR/install packaging.
