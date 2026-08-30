@@ -1,0 +1,105 @@
+# GitHub Release pipeline.
+#
+# Pushing a tag vX.Y.Z builds a universal (arm64 + x86_64) "Quota Monitor.app",
+# packages it as Quota-Monitor-X.Y.Z-universal.dmg alongside the standalone
+# quotamon-<os>-<arch> CLI binaries, and publishes them as a GitHub Release
+# with SHA256SUMS.
+#
+# Signing / notarization switch on automatically when these optional secrets
+# exist (macOS Developer ID required — the owner configures them):
+#   MACOS_CERT_P12         base64 of a .p12 Developer ID Application certificate
+#   MACOS_CERT_PASSWORD    password that unlocks that .p12
+#   APPLE_TEAM_ID          the Apple Developer team that owns the certificate
+#   NOTARY_KEY             a notarytool API key (App Store Connect .p8, base64)
+#   NOTARY_KEY_ID          the key id of that API key
+#   NOTARY_ISSUER          the issuer id that issued that API key
+# With no secrets the release is built ad-hoc (unsigned) and skips notarization;
+# end users then follow the "Open Anyway" flow in README.md's Install section.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.0.0-dev' }}
+      HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Import signing certificate
+        if: env.HAS_CERT == 'true'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERT_P12 }}
+          p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
+      - name: Build (xcodegen + xcodebuild)
+        env:
+          # Empty for unsigned releases; filled in below when a Developer ID
+          # is present so hardened runtime + timestamping kick in.
+          SIGN_FLAGS: ${{ env.HAS_CERT == 'true' && format('DEVELOPMENT_TEAM="{0}" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Developer ID Application" ENABLE_HARDENED_RUNTIME=YES OTHER_CODE_SIGN_FLAGS="--timestamp"', secrets.APPLE_TEAM_ID) || '' }}
+        run: |
+          xcodegen generate
+          xcodebuild \
+            -project QuotaMonitor.xcodeproj \
+            -scheme QuotaMonitor \
+            -configuration Release \
+            -derivedDataPath build \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            MARKETING_VERSION="$VERSION" \
+            $SIGN_FLAGS \
+            build
+
+      - name: Package
+        env:
+          SIGN_CMD: ${{ env.HAS_CERT == 'true' && '--sign "Developer ID Application"' || '' }}
+        run: |
+          bash scripts/package.sh "build/Build/Products/Release/Quota Monitor.app" "$VERSION" dist $SIGN_CMD
+
+      - name: Notarize + staple
+        if: env.HAS_CERT == 'true'
+        run: |
+          echo "${{ secrets.NOTARY_KEY }}" > notary.p8
+          xcrun notarytool submit dist/*.dmg \
+            --key notary.p8 \
+            --key-id "${{ secrets.NOTARY_KEY_ID }}" \
+            --issuer "${{ secrets.NOTARY_ISSUER }}" \
+            --wait
+          rm -f notary.p8
+          xcrun stapler staple dist/*.dmg
+          (cd dist && shasum -a 256 * > SHA256SUMS)
+
+      # A workflow_dispatch run has no tag to attach a Release to, so drop the
+      # artifacts as a build artifact instead.
+      - name: Upload artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quotamon-dist
+          path: dist/
+
+      - name: Publish release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
