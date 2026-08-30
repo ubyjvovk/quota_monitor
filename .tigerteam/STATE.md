@@ -483,3 +483,8 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   PM built app+widget, rendered, regenerated docs (+ `docs/widget.png`,
   README line). **Awaiting the user's merge verdict**; merge by hand
   (`git merge --no-ff`, see memory: feature merge assumes `main`).
+- 2026-08-30 16:30 — **console-widget MERGED to master** (`05793f9`, user:
+  "merge it"); feature branch removed; app rebuilt + relaunched. Console look
+  is complete: panel + widget in SF Mono Light. Widget needs the user's team
+  id in `Config/Signing.xcconfig` (+ `-AppGroup` variant) to be installable.
+  Board drained (33 done).
