@@ -453,3 +453,14 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   blocks xcodebuild); PM builds + renders + regenerates screenshots at review.
 - Finish: `tigerteam feature merge console-look` only on the user's say-so;
   `tigerteam feature rm console-look` to discard.
+- 2026-08-30 15:50 — **T-0033 and T-0034 accepted on `feature/console-look`**
+  (2 tickets, 3 attempts, ~13 min worker time, $3.56 on opus + one uncosted
+  codex run). PM built/rendered T-0034 by hand both times (opus lane still
+  can't run xcodebuild): first render had every countdown one unit low
+  (sample offsets exact, render a few ms later → truncation); reworked with
+  30 s slack; second render matches `docs/console.png` line for line.
+  `docs/app-{light,dark}.png` + `menubar.png` regenerated on the feature
+  branch. **Waiting on the user's verdict** — merge with
+  `tigerteam feature merge console-look`, discard with `feature rm`.
+  Master untouched. Note for later: the T-0034 grep criterion
+  `rankedProviders` was over-broad (MenuBarIcon legitimately ranks) — waived.
