@@ -178,6 +178,11 @@ execs); it needs an App Group, which needs a signing team — see
 [`Config/Signing.xcconfig`](Config/Signing.xcconfig). The menu-bar app works
 fully without one.
 
+<p align="center"><img src="docs/widget.png" alt="Quota Monitor medium widget" width="46%"></p>
+
+<sub>The medium widget: one console row per provider, tightest first. Small
+drops the countdown; large is the whole table.</sub>
+
 Regenerate the screenshots in this README with `scripts/screenshots.sh`
 (sample data only).
 

@@ -2,13 +2,26 @@ import AppKit
 import QuotaKit
 import SwiftUI
 
-/// Renders the panel to PNG so the design can be reviewed without a screenshot.
+/// Renders the panel and the widget to PNG so the design can be reviewed
+/// without a screenshot.
 ///
-/// Set `QUOTA_MONITOR_RENDER=/path/prefix` to write `<prefix>-light.png` and
-/// `<prefix>-dark.png`, then exit. It runs headlessly, needs no display, and
-/// always draws `sample` — never the machine's real quota, so the output is safe
-/// to publish and identical on every run.
+/// Set `QUOTA_MONITOR_RENDER=/path/prefix` to write `<prefix>-light.png`,
+/// `<prefix>-dark.png`, the menu bar icon, and the three widget families as
+/// `<prefix>-widget-<family>-<appearance>.png`, then exit. It runs headlessly,
+/// needs no display, and always draws `sample` — never the machine's real quota,
+/// so the output is safe to publish and identical on every run.
 enum DesignSnapshot {
+
+    /// The widget families WidgetKit offers on macOS 14, at their point sizes
+    /// after the system's default content margins. The widget cannot be
+    /// installed here (no App Group), so this render is how its face is reviewed.
+    private static var widgetFamilies: [(file: String, size: ConsoleWidgetView.Size, width: CGFloat, height: CGFloat)] {
+        [
+            ("widget-small", .small, 155, 155),
+            ("widget-medium", .medium, 329, 155),
+            ("widget-large", .large, 329, 345),
+        ]
+    }
 
     /// Whether this launch exists only to write PNGs and quit.
     static var isRendering: Bool {
@@ -19,7 +32,10 @@ enum DesignSnapshot {
     static func exportIfRequested() {
         guard let prefix = ProcessInfo.processInfo.environment["QUOTA_MONITOR_RENDER"] else { return }
 
-        let engine = QuotaEngine(preview: sample)
+        // Held in a local: `sample` rebuilds its offsets against a fresh `now`
+        // on every access, and the panel and the widgets must show one clock.
+        let sampleSnapshot = sample
+        let engine = QuotaEngine(preview: sampleSnapshot)
 
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             guard let nsAppearance = NSAppearance(named: appearance) else { continue }
@@ -62,6 +78,27 @@ enum DesignSnapshot {
                let ibitmap = NSBitmapImageRep(data: itiff),
                let ipng = ibitmap.representation(using: .png, properties: [:]) {
                 try? ipng.write(to: URL(fileURLWithPath: "\(prefix)-menubar-\(name).png"))
+            }
+
+            // The widget's three families. Each is drawn at its own family size
+            // over the console ground, since `containerBackground` only applies
+            // inside a real widget container.
+            for family in widgetFamilies {
+                let widgetRenderer = ImageRenderer(
+                    content: ConsoleWidgetView(snapshot: sampleSnapshot, asOf: Date(), size: family.size)
+                        .frame(width: family.width, height: family.height)
+                        .background(ConsoleTheme.background)
+                        .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
+                )
+                widgetRenderer.scale = 2
+
+                guard let wimage = widgetRenderer.nsImage,
+                      let wtiff = wimage.tiffRepresentation,
+                      let wbitmap = NSBitmapImageRep(data: wtiff),
+                      let wpng = wbitmap.representation(using: .png, properties: [:])
+                else { continue }
+
+                try? wpng.write(to: URL(fileURLWithPath: "\(prefix)-\(family.file)-\(name).png"))
             }
         }
 
