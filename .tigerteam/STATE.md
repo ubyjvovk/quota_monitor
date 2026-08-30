@@ -412,3 +412,22 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   linux/amd64, linux/arm64. Supervisor down. Board idle.
 - Open (needs user): Mac app cutover (App/ on hold), history/pace in Go,
   Windows tray, AUR/install packaging.
+
+### macOS app rebuilt — 2026-08-30
+- 30 tickets done. T-0029 (core setup surface), T-0030 (QuotamonRunner +
+  engine ingestion), T-0031 (macOS app + widget + bundling, opus lane),
+  T-0032 (quotamon --demo). Replicate excluded (cookie-gated).
+- App: MenuBarExtra console-style table, severity bars, Refresh button,
+  first-run SetupView (drives `discover --json` + `config set`), widget reads
+  the App Group snapshot. Bundles a universal `quotamon` in Contents/Resources
+  via a project.yml preBuildScript. Builds green (xcodebuild), renders both
+  panel PNGs headlessly.
+- README now leads with docs/console.png + docs/app-light.png (sample data);
+  scripts/screenshots.sh regenerates all three.
+- **opus-lane gotcha:** sandbox_profile="" turns Seatbelt off, but the Claude
+  Code permission allowlist (rtk hook, ~/.claude/settings.json) still denies
+  xcodegen/xcodebuild/make/swift-build to a headless worker. So the opus lane
+  can WRITE app code but cannot BUILD it; the PM verifies the build outside the
+  worker. To let the lane self-verify, the user must allowlist those commands.
+- Supervisor down, board idle. Open: iOS/CloudKit, history/pace, Windows,
+  AUR/install packaging, App Group signing for the widget (needs a team).
