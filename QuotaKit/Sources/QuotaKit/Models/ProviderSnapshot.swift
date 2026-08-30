@@ -108,6 +108,8 @@ public struct Credits: Codable, Hashable, Sendable {
     public var hasCredits: Bool
     public var unlimited: Bool
     public var balance: String?
+    /// Provider-reported spend when it is distinct from the remaining balance.
+    public var spend: String?
     /// Whether the balance can actually be spent. A provider can report a
     /// non-zero balance that is switched off (Claude: `spend.enabled == false`
     /// with `disabled_reason`), and showing that as available headroom is the
@@ -119,16 +121,18 @@ public struct Credits: Codable, Hashable, Sendable {
         hasCredits: Bool,
         unlimited: Bool,
         balance: String? = nil,
-        enabled: Bool = true
+        enabled: Bool = true,
+        spend: String? = nil
     ) {
         self.hasCredits = hasCredits
         self.unlimited = unlimited
         self.balance = balance
         self.enabled = enabled
+        self.spend = spend
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hasCredits, unlimited, balance, enabled
+        case hasCredits, unlimited, balance, enabled, spend
     }
 
     /// Decodes older persisted balances as enabled when they predate the flag.
@@ -138,6 +142,7 @@ public struct Credits: Codable, Hashable, Sendable {
         self.unlimited = try container.decode(Bool.self, forKey: .unlimited)
         self.balance = try container.decodeIfPresent(String.self, forKey: .balance)
         self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        self.spend = try container.decodeIfPresent(String.self, forKey: .spend)
     }
 }
 
