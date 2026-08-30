@@ -472,3 +472,14 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   screenshots already regenerated on the branch. Mac app is no longer "on
   hold": its panel is the console table (`ConsoleTable` in QuotaKit, SF Mono
   `ConsoleTheme` in App/). Widget still uses `Tufte`.
+- 2026-08-30 16:20 — **T-0035 accepted on `feature/console-widget`** (opus,
+  1 attempt). Root cause of the "app font looks heavier" report: SFNSMono.ttf
+  is a variable font whose default instance is Light; the console screenshot
+  is drawn at that default, the app asked for Regular. Now `.light` (ink 816
+  vs console 573 vs old 961 — remainder is CoreText smoothing, not weight).
+  `ConsoleTheme` + new `ConsoleWidgetView` live in QuotaKit/UI; Tufte and
+  Sparkline deleted; widget = console rows (small 17 cols / medium 37 /
+  large = full table), unit-tested; DesignSnapshot renders six widget PNGs.
+  PM built app+widget, rendered, regenerated docs (+ `docs/widget.png`,
+  README line). **Awaiting the user's merge verdict**; merge by hand
+  (`git merge --no-ff`, see memory: feature merge assumes `main`).
