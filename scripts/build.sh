@@ -2,8 +2,9 @@
 #
 # Regenerate the Xcode project, build, and relaunch the menu bar app.
 #
-#   ./scripts/build.sh          build and relaunch
-#   ./scripts/build.sh --clean  wipe DerivedData first
+#   ./scripts/build.sh             build and relaunch
+#   ./scripts/build.sh --clean     wipe DerivedData first
+#   ./scripts/build.sh --no-open   build only, do not launch
 
 set -euo pipefail
 
@@ -29,6 +30,16 @@ xcodebuild -project QuotaMonitor.xcodeproj -scheme QuotaMonitor \
 
 APP="$ROOT/build/Build/Products/Debug/Quota Monitor.app"
 [ -d "$APP" ] || { echo "error: build produced no app bundle" >&2; exit 1; }
+
+# The app has no fetchers of its own; without the core it shows nothing at all,
+# so an app bundle missing it is a failed build, not a degraded one.
+[ -x "$APP/Contents/Resources/quotamon" ] || {
+  echo "error: app bundle has no executable Contents/Resources/quotamon" >&2; exit 1; }
+
+if [ "${1:-}" = "--no-open" ]; then
+  echo "==> Built $APP"
+  exit 0
+fi
 
 echo "==> Launching $APP"
 open "$APP"

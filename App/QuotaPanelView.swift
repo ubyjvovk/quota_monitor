@@ -1,187 +1,161 @@
 import QuotaKit
 import SwiftUI
 
+/// The menu bar panel: the console table, plus the two controls a menu bar app
+/// needs — refresh now, and reconfigure.
+///
+/// Every number comes from the bundled `quotamon` via `QuotaEngine`; this view
+/// only lays it out.
 struct QuotaPanelView: View {
-    @Environment(QuotaEngine.self) private var engine
-    @State private var showingSettings = false
+    /// nil in the screenshot render path and in previews, where nothing shells out.
+    var setup: QuotamonSetup?
 
-    /// Drives countdowns and pace so the panel stays honest while open.
+    @Environment(QuotaEngine.self) private var engine
+
+    /// Drives the reset countdowns so they stay honest while the panel is open.
     @State private var now = Date()
+    @State private var showingSetup = false
+    @State private var checkedForFirstRun = false
+
     private let clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-
-            if engine.snapshot.providers.isEmpty {
-                loading
+            if let setup, showingSetup {
+                SetupView(
+                    setup: setup,
+                    onFinish: {
+                        showingSetup = false
+                        Task { await engine.refresh(fresh: true) }
+                    },
+                    onCancel: cancelSetup
+                )
             } else {
-                VStack(alignment: .leading, spacing: 16) {
-                    ForEach(Array(engine.snapshot.rankedProviders(asOf: now).enumerated()), id: \.element.id) { index, provider in
-                        if index > 0 {
-                            // A hairline instead of a boxed card: separation with
-                            // the least possible ink.
-                            Rectangle()
-                                .fill(Tufte.rule)
-                                .frame(height: 0.5)
-                                .opacity(0.6)
-                        }
-                        ProviderCard(provider: provider, history: engine.history, now: now)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                table
             }
-
-            if showingSettings { SettingsSection() }
 
             footer
         }
-        .frame(width: 348)
+        .frame(width: 320)
         .background(Tufte.background)
         .onReceive(clock) { now = $0 }
+        .task { await detectFirstRun() }
     }
 
-    /// States the finding, not the contents. Rule: a heading should assert.
-    private var header: some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(QuotaFormat.finding(for: engine.snapshot, asOf: now))
-                    .font(Tufte.serif(13, .semibold))
-                    .foregroundStyle(Tufte.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(subtitle)
-                    .font(Tufte.meta(9.5))
-                    .foregroundStyle(Tufte.textSecondary)
-            }
+    /// No way out of setup until there is a table to go back to.
+    private var cancelSetup: (() -> Void)? {
+        guard !engine.snapshot.providers.isEmpty else { return nil }
+        return { showingSetup = false }
+    }
 
-            Spacer(minLength: 4)
+    // MARK: - Table
 
-            Button {
-                Task { await engine.refresh() }
-            } label: {
-                if engine.isRefreshing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "arrow.clockwise").font(.system(size: 11))
+    @ViewBuilder
+    private var table: some View {
+        if engine.snapshot.providers.isEmpty {
+            empty
+        } else {
+            let providers = engine.snapshot.rankedProviders(asOf: now)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(providers) { provider in
+                    // A hairline between blocks: separation with the least ink.
+                    if provider.id != providers.first?.id {
+                        Rectangle()
+                            .fill(Tufte.rule)
+                            .frame(height: 0.5)
+                            .opacity(0.6)
+                            .padding(.vertical, 10)
+                    }
+                    ProviderSection(provider: provider, now: now)
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(engine.isRefreshing)
-            .help("Refresh now")
-            .accessibilityLabel("Refresh now")
-
-            Button {
-                showingSettings.toggle()
-            } label: {
-                Image(systemName: "slider.horizontal.3").font(.system(size: 11))
-            }
-            .buttonStyle(.plain)
-            .help("Settings")
-            .accessibilityLabel("Settings")
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
         }
-        .foregroundStyle(Tufte.textSecondary)
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
     }
 
-    private var subtitle: String {
-        guard let last = engine.lastRefreshedAt else { return "never refreshed" }
-        return "updated \(QuotaFormat.age(now.timeIntervalSince(last)))"
-    }
-
-    private var loading: some View {
+    private var empty: some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text("Reading providers…")
+            if engine.isRefreshing { ProgressView().controlSize(.small) }
+            Text(engine.isRefreshing ? "Reading providers…" : "No readings yet.")
                 .font(Tufte.meta(10))
                 .foregroundStyle(Tufte.textSecondary)
         }
         .padding(14)
     }
 
+    // MARK: - Footer
+
     private var footer: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Tufte.rule).frame(height: 0.5).opacity(0.6)
-            HStack {
+
+            if let message = warning {
+                Text(message)
+                    .font(Tufte.meta(9))
+                    .foregroundStyle(Tufte.highlight)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 7)
+            }
+
+            HStack(spacing: 10) {
+                Button("Refresh") {
+                    // fresh: true — the user asked *now*, so skip the core's caches.
+                    Task { await engine.refresh(fresh: true) }
+                }
+                .controlSize(.small)
+                .disabled(engine.isRefreshing || CoreBinary.url == nil)
+
+                if engine.isRefreshing { ProgressView().controlSize(.small) }
+
+                Spacer(minLength: 0)
+
+                if setup != nil {
+                    Button {
+                        showingSetup.toggle()
+                    } label: {
+                        Image(systemName: "gearshape").font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Tufte.textSecondary)
+                    .help("Choose providers")
+                    .accessibilityLabel("Choose providers")
+                }
+
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.plain)
                     .font(Tufte.meta(10))
-                    .foregroundStyle(Tufte.textSecondary)
-                Spacer()
-                Text("v\(Bundle.main.shortVersion)")
-                    .font(Tufte.meta(9))
                     .foregroundStyle(Tufte.textSecondary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
         }
     }
-}
 
-struct SettingsSection: View {
-    @Environment(QuotaEngine.self) private var engine
+    /// A missing binary is a build fault and outranks any refresh error, which
+    /// would only be a symptom of it.
+    private var warning: String? {
+        if CoreBinary.url == nil { return CoreBinary.missingMessage }
+        return engine.lastError
+    }
 
-    private static let intervals: [(String, TimeInterval)] = [
-        ("1m", 60), ("5m", 300), ("15m", 900), ("30m", 1800),
-    ]
+    // MARK: - First run
 
-    var body: some View {
-        @Bindable var engine = engine
+    /// Shows setup when there is nothing to show and the core has no config yet.
+    ///
+    /// Both conditions matter: an empty snapshot alone can just mean the first
+    /// refresh has not landed, and a missing config alone cannot happen while
+    /// readings exist.
+    private func detectFirstRun() async {
+        guard let setup, !checkedForFirstRun else { return }
+        checkedForFirstRun = true
+        guard engine.snapshot.providers.isEmpty else { return }
 
-        VStack(alignment: .leading, spacing: 8) {
-            Rectangle().fill(Tufte.rule).frame(height: 0.5).opacity(0.6)
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text("Live refresh")
-                    .font(Tufte.meta(9))
-                    .foregroundStyle(Tufte.textSecondary)
-
-                // Off means local files only: no network call, no token read.
-                ForEach([Claude.providerID, Codex.providerID], id: \.self) { id in
-                    Toggle(isOn: liveBinding(for: id)) {
-                        Text(id == Claude.providerID ? Claude.displayName : Codex.displayName)
-                            .font(Tufte.meta(10.5))
-                            .foregroundStyle(Tufte.text)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                }
-
-                HStack(spacing: 6) {
-                    Text("Every")
-                        .font(Tufte.meta(10.5))
-                        .foregroundStyle(Tufte.text)
-                    Picker("", selection: $engine.settings.refreshInterval) {
-                        ForEach(Self.intervals, id: \.1) { Text($0.0).tag($0.1) }
-                    }
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .frame(width: 78)
-                }
-
-                if !engine.isSharedWithWidget {
-                    Text("Widget sharing off — no App Group container.")
-                        .font(Tufte.meta(9))
-                        .foregroundStyle(Tufte.textSecondary)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+        if engine.lastError == QuotamonSetup.notConfiguredMessage {
+            showingSetup = true
+            return
         }
-    }
-
-    private func liveBinding(for id: String) -> Binding<Bool> {
-        Binding(
-            get: { engine.settings.isLiveEnabled(id) },
-            set: { engine.settings.liveEnabled[id] = $0 }
-        )
-    }
-}
-
-extension Bundle {
-    var shortVersion: String {
-        object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        showingSetup = await setup.configIsMissing()
     }
 }
