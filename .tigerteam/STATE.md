@@ -516,3 +516,15 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   behind a node guard (JS derived layer now pinned like Swift's). One blocked
   question (demo fixture predates branch — approved inline data). Merged to
   master and pushed (user authorised push: "streamline"); PR closes as merged.
+- 2026-08-31 — **Stress-review fix wave COMPLETE: T-0045..T-0056 all accepted
+  on master** (12/12; one rework: none — clean wave; ds carried 0048/0056,
+  codex/luna/opus the rest). Landed: usable-readings exit code; hybrid cache
+  as live-failure fallback + 15-min early-serve cap; api_key redacted from
+  config JSON + --api-key-stdin (app uses it); setup refuses broken configs;
+  codex resets_at + resilient rollout scan + deflaked app-server test;
+  DeepInfra count/unknown-money honesty; grok label-from-period; discover
+  hardening; waybar parity + clamp; Swift history nil-skip + full short-name
+  catalog; runner 45s + posix_spawn process-group kill; widget credits rows +
+  staleness marker; SetupView merges saved config; SHA256SUMS + build.sh
+  fixes; omarchy watchdog. PM built+rendered T-0054/55 by hand. App rebuilt
+  from master. NOT pushed — awaiting user.
