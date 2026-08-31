@@ -7,8 +7,9 @@ The bar icon stacks one thin capsule per provider, filled to that
 provider's tightest current window and coloured by severity (`normal`
 below 70%, `warning` below 90%, `critical` above that). Click opens a
 dropdown with windows, credits, and a Refresh button (`quotamon --json
---fresh`). Bars follow the panel's provider order (top bar = first row),
-matching the macOS glyph.
+--fresh`). A fetch that hangs longer than 30 s is hard-killed and reported as a
+timeout while the last good snapshot is kept. Bars follow the panel's provider
+order (top bar = first row), matching the macOS glyph.
 
 ## Install
 

@@ -25,6 +25,7 @@ Panel {
   property string lastError: ""
   property bool refreshing: false
   property bool pendingFresh: false
+  property bool timedOut: false
   property double nowMs: Date.now()
 
   readonly property string binary: {
@@ -80,6 +81,7 @@ Panel {
       return
     }
     lastError = ""
+    timedOut = false
     refreshing = true
     fetchProc.stdoutBuf = ""
     fetchProc.stderrBuf = ""
@@ -88,6 +90,8 @@ Panel {
       ? [root.binary, "--json", "--fresh"]
       : [root.binary, "--json"]
     fetchProc.running = true
+    // Arm the 30 s watchdog for this fetch; disarmed on normal exit below.
+    watchdog.restart()
   }
 
   function applyOutput(raw) {
@@ -133,7 +137,12 @@ Panel {
       onStreamFinished: fetchProc.stderrBuf = String(text || "")
     }
     onExited: function(exitCode, exitStatus) {
+      watchdog.stop()
       root.refreshing = false
+      // If the watchdog already reported a hung fetch (timedOut), the kill
+      // below surfaces here as a non-zero exit; don't overwrite its message.
+      if (root.timedOut)
+        return
       if (exitCode === 0)
         root.applyOutput(fetchProc.stdoutBuf)
       else
@@ -144,6 +153,24 @@ Panel {
       if (requeueFresh) {
         Qt.callLater(function() { root.refreshNow(true) })
       }
+    }
+  }
+
+  // Watchdog (F12): nothing else bounds a fetch — a child so hung it never
+  // exits would leave refreshing=true and disable Refresh forever. After 30 s
+  // we hard-kill the child (Quickshell Process exposes no SIGTERM method, so
+  // running = false is the force-kill, matching how refreshNow starts it), keep
+  // the last good snapshot, and report the timeout. Disarmed on normal onExited.
+  Timer {
+    id: watchdog
+    interval: 30000
+    onTriggered: {
+      if (!fetchProc.running)
+        return
+      root.timedOut = true
+      fetchProc.running = false
+      root.refreshing = false
+      root.lastError = "quotamon timed out after 30s"
     }
   }
 
