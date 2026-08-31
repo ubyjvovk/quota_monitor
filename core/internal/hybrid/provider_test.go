@@ -167,69 +167,107 @@ func TestFetchDoesNotCallLiveWhenItIsDisabled(t *testing.T) {
 	}
 }
 
-func TestStaleTokenUsesAYoungCurrentCacheWithoutRefreshOrLive(t *testing.T) {
+func TestCachePolicy(t *testing.T) {
 	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
-	store := cache.Store{Dir: t.TempDir()}
-	cached := providerWithWindow(snapshot.OriginLive, now.Add(4*time.Hour), 18)
-	cached.ObservedAt = snapshot.Time{Time: now.Add(-time.Hour)}
-	if err := store.Save(cached); err != nil {
-		t.Fatal(err)
-	}
-	var liveCalls atomic.Int32
-	var refreshCalls atomic.Int32
-
-	got := (hybrid.Provider{
-		ID: "test", DisplayName: "Test",
-		Live:           stubSource{origin: snapshot.OriginLive, provider: providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 43), calls: &liveCalls},
-		LiveEnabled:    true,
-		Cache:          &store,
-		ShortestWindow: 5 * time.Hour,
-		TokenStale:     func(time.Time) bool { return true },
-		Refresh: func(context.Context) error {
-			refreshCalls.Add(1)
-			return nil
+	tests := []struct {
+		name             string
+		cacheAge         time.Duration
+		tokenStale       bool
+		liveError        error
+		providerStatus   string
+		wantOrigin       snapshot.Origin
+		wantStatus       string
+		wantMessage      string
+		wantUsage        float64
+		wantLiveCalls    int32
+		wantRefreshCalls int32
+	}{
+		{
+			name:          "outage with valid token serves cache with age label",
+			cacheAge:      time.Minute,
+			liveError:     source.Errorf(source.Transport, "endpoint unavailable"),
+			wantOrigin:    snapshot.OriginLocal,
+			wantStatus:    "needsSetup",
+			wantMessage:   "Cached 1m ago — live refresh failed: endpoint unavailable",
+			wantUsage:     18,
+			wantLiveCalls: 1,
 		},
-		Now: func() time.Time { return now },
-	}).Fetch(context.Background())
-
-	if got.Origin != snapshot.OriginLocal || got.Status.State != "ok" || got.Windows[0].UsedPercent != 18 {
-		t.Fatalf("Fetch() = origin/status/usage %q/%q/%v, want local/ok/18", got.Origin, got.Status.State, got.Windows[0].UsedPercent)
-	}
-	if liveCalls.Load() != 0 || refreshCalls.Load() != 0 {
-		t.Fatalf("live/refresh calls = %d/%d, want 0/0", liveCalls.Load(), refreshCalls.Load())
-	}
-}
-
-func TestStaleTokenRefreshesOnceWhenTheCacheIsOldThenFetchesLive(t *testing.T) {
-	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
-	store := cache.Store{Dir: t.TempDir()}
-	cached := providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 18)
-	cached.ObservedAt = snapshot.Time{Time: now.Add(-6 * time.Hour)}
-	if err := store.Save(cached); err != nil {
-		t.Fatal(err)
-	}
-	var liveCalls atomic.Int32
-	var refreshCalls atomic.Int32
-
-	got := (hybrid.Provider{
-		ID: "test", DisplayName: "Test",
-		Live:           stubSource{origin: snapshot.OriginLive, provider: providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 43), calls: &liveCalls},
-		LiveEnabled:    true,
-		Cache:          &store,
-		ShortestWindow: 5 * time.Hour,
-		TokenStale:     func(time.Time) bool { return true },
-		Refresh: func(context.Context) error {
-			refreshCalls.Add(1)
-			return nil
+		{
+			name:             "stale token with three hour cache attempts live",
+			cacheAge:         3 * time.Hour,
+			tokenStale:       true,
+			wantOrigin:       snapshot.OriginLive,
+			wantStatus:       "ok",
+			wantUsage:        43,
+			wantLiveCalls:    1,
+			wantRefreshCalls: 1,
 		},
-		Now: func() time.Time { return now },
-	}).Fetch(context.Background())
-
-	if got.Origin != snapshot.OriginLive || got.Windows[0].UsedPercent != 43 {
-		t.Fatalf("Fetch() = origin/usage %q/%v, want live/43", got.Origin, got.Windows[0].UsedPercent)
+		{
+			name:          "stale token with ten minute cache serves early",
+			cacheAge:      10 * time.Minute,
+			tokenStale:    true,
+			wantOrigin:    snapshot.OriginLocal,
+			wantStatus:    "ok",
+			wantUsage:     18,
+			wantLiveCalls: 0,
+		},
+		{
+			name:           "provider needs setup status survives rollover fallback",
+			liveError:      source.Errorf(source.Transport, "endpoint unavailable"),
+			providerStatus: "Run a Codex turn to record fresh usage",
+			wantOrigin:     snapshot.OriginLocal,
+			wantStatus:     "needsSetup",
+			wantMessage:    "Run a Codex turn to record fresh usage",
+			wantUsage:      18,
+			wantLiveCalls:  1,
+		},
 	}
-	if refreshCalls.Load() != 1 || liveCalls.Load() != 1 {
-		t.Fatalf("refresh/live calls = %d/%d, want 1/1", refreshCalls.Load(), liveCalls.Load())
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var store *cache.Store
+			if test.cacheAge > 0 {
+				candidate := cache.Store{Dir: t.TempDir()}
+				cached := providerWithWindow(snapshot.OriginLive, now.Add(4*time.Hour), 18)
+				cached.ObservedAt = snapshot.Time{Time: now.Add(-test.cacheAge)}
+				if err := candidate.Save(cached); err != nil {
+					t.Fatal(err)
+				}
+				store = &candidate
+			}
+
+			var local source.Source
+			if test.providerStatus != "" {
+				provider := providerWithWindow(snapshot.OriginLocal, now.Add(-time.Minute), 18)
+				provider.ObservedAt = snapshot.Time{Time: now.Add(-2 * time.Hour)}
+				provider.Status = snapshot.NeedsSetup(test.providerStatus)
+				local = localSource(provider)
+			}
+
+			var liveCalls atomic.Int32
+			var refreshCalls atomic.Int32
+			got := (hybrid.Provider{
+				ID: "test", DisplayName: "Test",
+				Local:          local,
+				Live:           stubSource{origin: snapshot.OriginLive, provider: providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 43), err: test.liveError, calls: &liveCalls},
+				LiveEnabled:    true,
+				Cache:          store,
+				ShortestWindow: 5 * time.Hour,
+				TokenStale:     func(time.Time) bool { return test.tokenStale },
+				Refresh: func(context.Context) error {
+					refreshCalls.Add(1)
+					return nil
+				},
+				Now: func() time.Time { return now },
+			}).Fetch(context.Background())
+
+			if got.Origin != test.wantOrigin || got.Status.State != test.wantStatus || got.Status.Message != test.wantMessage || got.Windows[0].UsedPercent != test.wantUsage {
+				t.Fatalf("Fetch() = origin/status/message/usage %q/%q/%q/%v, want %q/%q/%q/%v", got.Origin, got.Status.State, got.Status.Message, got.Windows[0].UsedPercent, test.wantOrigin, test.wantStatus, test.wantMessage, test.wantUsage)
+			}
+			if liveCalls.Load() != test.wantLiveCalls || refreshCalls.Load() != test.wantRefreshCalls {
+				t.Fatalf("live/refresh calls = %d/%d, want %d/%d", liveCalls.Load(), refreshCalls.Load(), test.wantLiveCalls, test.wantRefreshCalls)
+			}
+		})
 	}
 }
 
