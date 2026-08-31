@@ -1,0 +1,20 @@
+{
+  "object": "credits",
+  "balance_cents": 2560,
+  "held_cents": 60,
+  "available_cents": 2500,
+  "currency": "usd",
+  "period": {
+    "start": "2026-08-01T00:00:00.000Z",
+    "spent_cents": 785
+  },
+  "spend_cap": {
+    "limit_cents": 5000,
+    "hard": true,
+    "used_cents": 785,
+    "remaining_cents": 4215,
+    "gates_inference": false
+  },
+  "plan_tier": "pro",
+  "as_of": "2026-08-31T19:48:55.384Z"
+}

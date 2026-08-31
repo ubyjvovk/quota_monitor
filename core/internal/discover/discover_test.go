@@ -99,7 +99,9 @@ func TestDeepInfraDiscoveryFindsTheEnvironmentWithoutLoadingSecrets(t *testing.T
 		return ""
 	}
 	deps.loadConfig = func() (config.Config, error) {
-		t.Fatal("config should not be loaded when the environment key is set")
+		// A sibling probe (RunInfra) legitimately consults config when its own
+		// env key is unset, so loading here is expected; the DeepInfra finding
+		// must still come from the environment, not from a stored key.
 		return config.Config{}, nil
 	}
 
@@ -117,6 +119,29 @@ func TestKimiCredentialIsFoundAndReportedSupported(t *testing.T) {
 	finding := all(testDependencies(t, home))[4]
 	if !finding.Found || !finding.Supported || !strings.Contains(finding.Hint, "run `kimi`") {
 		t.Fatalf("Kimi finding = %#v", finding)
+	}
+}
+
+func TestRunInfraDiscoveryFindsTheEnvironmentWithoutLoadingSecrets(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	deps := testDependencies(t, home)
+	deps.getenv = func(name string) string {
+		if name == "RUNINFRA_TOKEN" {
+			return "secret"
+		}
+		return ""
+	}
+	deps.loadConfig = func() (config.Config, error) {
+		// A sibling probe (DeepInfra) legitimately consults config when its own
+		// env key is unset, so loading here is expected; the RunInfra finding
+		// must still come from the environment, not from a stored key.
+		return config.Config{}, nil
+	}
+
+	finding := all(deps)[5]
+	if !finding.Found || !finding.NeedsKey || finding.Detail != "RUNINFRA_TOKEN set" {
+		t.Fatalf("RunInfra finding = %#v", finding)
 	}
 }
 

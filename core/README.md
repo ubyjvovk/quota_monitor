@@ -55,6 +55,11 @@ Grok         —              live · just now
 
 DeepInfra    pay-as-you-go  live · just now
   spend     $7.96 this month
+
+RunInfra     pro            live · just now
+  Cap       ██░░░░░░░░░░░░░░░░░░  16%  no reset
+  balance   $25.00 remaining
+  spend     $7.85 this month
 ```
 
 Table colour defaults to `--color=auto`, which colours warning and critical
@@ -116,6 +121,8 @@ flag:
 `codex.live` selects its quota route: `"app-server"` (default), `"http"`, or
 `"off"`. `deepinfra.api_key` supplies the DeepInfra key directly; when it is
 empty the provider falls back to the `DEEPINFRA_KEY` environment variable.
+`runinfra.api_key` supplies the RunInfra key; when empty it falls back to the
+`RUNINFRA_TOKEN` environment variable.
 
 API keys may live in the file, but the config is always written with `0600`
 permissions, and a config that contains an `api_key` while carrying group or
@@ -223,6 +230,8 @@ QuotaMon honours a small set of environment variables, all optional:
   token from `~/.codex/auth.json`.
 - `DEEPINFRA_KEY` — DeepInfra API key, used when the config file's
   `deepinfra.api_key` is empty.
+- `RUNINFRA_TOKEN` — RunInfra API key, used when the config file's
+  `runinfra.api_key` is empty.
 
 ## Caching and refresh
 

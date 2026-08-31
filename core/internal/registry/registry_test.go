@@ -11,6 +11,7 @@ import (
 	"quotamon/internal/providers/deepinfra"
 	"quotamon/internal/providers/grok"
 	"quotamon/internal/providers/kimi"
+	"quotamon/internal/providers/runinfra"
 	"quotamon/internal/registry"
 )
 
@@ -18,7 +19,7 @@ import (
 // leaving each provider's provider-specific settings at their defaults.
 func enabledConfig() config.Config {
 	providers := map[string]config.Provider{}
-	for _, id := range []string{claude.ProviderID, codex.ProviderID, grok.ProviderID, deepinfra.ProviderID, kimi.ProviderID} {
+	for _, id := range []string{claude.ProviderID, codex.ProviderID, grok.ProviderID, deepinfra.ProviderID, kimi.ProviderID, runinfra.ProviderID} {
 		providers[id] = config.Provider{Enabled: true}
 	}
 	return config.Config{Version: 1, Providers: providers}
@@ -35,7 +36,7 @@ func TestAllReturnsOnlyEnabledProvidersInStableOrder(t *testing.T) {
 		Env:    func(string) string { return "" },
 	})
 
-	if len(providers) != 5 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID || providers[3].ID != deepinfra.ProviderID || providers[4].ID != kimi.ProviderID {
+	if len(providers) != 6 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID || providers[3].ID != deepinfra.ProviderID || providers[4].ID != kimi.ProviderID || providers[5].ID != runinfra.ProviderID {
 		t.Fatalf("All() order = %#v", providers)
 	}
 	claudeLocal, ok := providers[0].Local.(claude.LocalSource)
@@ -67,16 +68,22 @@ func TestAllReturnsOnlyEnabledProvidersInStableOrder(t *testing.T) {
 	if _, ok := providers[4].Live.(kimi.LiveSource); !ok {
 		t.Fatalf("Kimi live = %T, want LiveSource", providers[4].Live)
 	}
-	wantWindows := []time.Duration{5 * time.Hour, 5 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 5 * time.Hour}
+	if providers[5].Local != nil {
+		t.Fatalf("RunInfra local = %T, want nil", providers[5].Local)
+	}
+	if _, ok := providers[5].Live.(runinfra.LiveSource); !ok {
+		t.Fatalf("RunInfra live = %T, want LiveSource", providers[5].Live)
+	}
+	wantWindows := []time.Duration{5 * time.Hour, 5 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 5 * time.Hour, 30 * 24 * time.Hour}
 	for index, provider := range providers {
 		if provider.Cache == nil || provider.ShortestWindow != wantWindows[index] {
 			t.Errorf("provider %s cache/window = %v/%s, want configured/%s", provider.ID, provider.Cache, provider.ShortestWindow, wantWindows[index])
 		}
 	}
-	if providers[0].TokenStale != nil || providers[1].TokenStale != nil || providers[2].TokenStale == nil || providers[3].TokenStale != nil || providers[4].TokenStale == nil {
+	if providers[0].TokenStale != nil || providers[1].TokenStale != nil || providers[2].TokenStale == nil || providers[3].TokenStale != nil || providers[4].TokenStale == nil || providers[5].TokenStale != nil {
 		t.Fatalf("token-stale policies are not wired only for Grok and Kimi")
 	}
-	if providers[0].Refresh != nil || providers[1].Refresh != nil || providers[2].Refresh != nil || providers[3].Refresh != nil || providers[4].Refresh == nil {
+	if providers[0].Refresh != nil || providers[1].Refresh != nil || providers[2].Refresh != nil || providers[3].Refresh != nil || providers[4].Refresh == nil || providers[5].Refresh != nil {
 		t.Fatalf("refresh policy is not wired only for Kimi")
 	}
 }
@@ -86,8 +93,8 @@ func TestAllAppliesLivePolicyAcrossEnabledProviders(t *testing.T) {
 		Config:      enabledConfig(),
 		LiveEnabled: func(id string) bool { return id != claude.ProviderID },
 	})
-	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled || !providers[3].LiveEnabled || !providers[4].LiveEnabled {
-		t.Fatalf("All() live policy = %v %v %v %v %v, want only Claude disabled", providers[0].LiveEnabled, providers[1].LiveEnabled, providers[2].LiveEnabled, providers[3].LiveEnabled, providers[4].LiveEnabled)
+	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled || !providers[3].LiveEnabled || !providers[4].LiveEnabled || !providers[5].LiveEnabled {
+		t.Fatalf("All() live policy (%v %v %v %v %v %v), want only Claude disabled", providers[0].LiveEnabled, providers[1].LiveEnabled, providers[2].LiveEnabled, providers[3].LiveEnabled, providers[4].LiveEnabled, providers[5].LiveEnabled)
 	}
 }
 
@@ -101,7 +108,7 @@ func TestAllOmitsDisabledProviders(t *testing.T) {
 	for _, provider := range providers {
 		ids = append(ids, provider.ID)
 	}
-	if len(providers) != 3 || ids[0] != codex.ProviderID || ids[1] != grok.ProviderID || ids[2] != kimi.ProviderID {
+	if len(providers) != 4 || ids[0] != codex.ProviderID || ids[1] != grok.ProviderID || ids[2] != kimi.ProviderID || ids[3] != runinfra.ProviderID {
 		t.Fatalf("All() with claude and deepinfra disabled = %#v", ids)
 	}
 }
@@ -188,6 +195,49 @@ func TestAllFallsBackToTheEnvironmentWhenDeepInfraConfigHasNoKey(t *testing.T) {
 	}
 	if key := live.Key(); key != "from-env" {
 		t.Fatalf("DeepInfra Key() = %q, want the environment fallback", key)
+	}
+}
+
+func TestAllUsesRunInfraConfigKeyOverTheEnvironment(t *testing.T) {
+	cfg := enabledConfig()
+	runInfraSetting := cfg.Providers[runinfra.ProviderID]
+	runInfraSetting.APIKey = "from-config"
+	cfg.Providers[runinfra.ProviderID] = runInfraSetting
+
+	providers := registry.All(registry.Options{
+		Config: cfg,
+		Env: func(name string) string {
+			if name == "RUNINFRA_TOKEN" {
+				return "from-env"
+			}
+			return ""
+		},
+	})
+	live, ok := providers[5].Live.(runinfra.LiveSource)
+	if !ok {
+		t.Fatalf("RunInfra live = %T, want LiveSource", providers[5].Live)
+	}
+	if key := live.Key(); key != "from-config" {
+		t.Fatalf("RunInfra Key() = %q, want the config key to beat the environment", key)
+	}
+}
+
+func TestAllFallsBackToTheEnvironmentWhenRunInfraConfigHasNoKey(t *testing.T) {
+	providers := registry.All(registry.Options{
+		Config: enabledConfig(),
+		Env: func(name string) string {
+			if name == "RUNINFRA_TOKEN" {
+				return "from-env"
+			}
+			return ""
+		},
+	})
+	live, ok := providers[5].Live.(runinfra.LiveSource)
+	if !ok {
+		t.Fatalf("RunInfra live = %T, want LiveSource", providers[5].Live)
+	}
+	if key := live.Key(); key != "from-env" {
+		t.Fatalf("RunInfra Key() = %q, want the environment fallback", key)
 	}
 }
 

@@ -60,6 +60,7 @@ func all(deps dependencies) []Finding {
 		discoverGrok(deps),
 		discoverDeepInfra(deps),
 		discoverFile("kimi", "Kimi", filepath.Join(deps.home, ".kimi-code", "credentials", "kimi-code.json"), "~/.kimi-code/credentials/kimi-code.json", "run `kimi` and sign in", true),
+		discoverRunInfra(deps),
 	}
 }
 
@@ -140,6 +141,27 @@ func discoverDeepInfra(deps dependencies) Finding {
 		return finding
 	}
 	if loaded.Providers["deepinfra"].APIKey != "" {
+		finding.Found = true
+		finding.Detail = "config.json api_key set"
+	}
+	return finding
+}
+
+func discoverRunInfra(deps dependencies) Finding {
+	finding := Finding{
+		ID: "runinfra", DisplayName: "RunInfra", Supported: true, NeedsKey: true,
+		Detail: "RUNINFRA_TOKEN not set", Hint: "get a key at runinfra.ai",
+	}
+	if deps.getenv("RUNINFRA_TOKEN") != "" {
+		finding.Found = true
+		finding.Detail = "RUNINFRA_TOKEN set"
+		return finding
+	}
+	loaded, err := deps.loadConfig()
+	if err != nil && !errors.Is(err, config.ErrMissing) {
+		return finding
+	}
+	if loaded.Providers["runinfra"].APIKey != "" {
 		finding.Found = true
 		finding.Detail = "config.json api_key set"
 	}
