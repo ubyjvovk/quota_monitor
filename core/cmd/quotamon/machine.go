@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,7 +32,7 @@ func runDiscover(args []string, stdout, stderr io.Writer, allFindings func() []d
 	return 0
 }
 
-func runConfig(args []string, stdout, stderr io.Writer) int {
+func runConfig(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usageText)
 		return 2
@@ -47,7 +48,7 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 	case "get":
 		return runConfigGet(args[1:], stdout, stderr)
 	case "set":
-		return runConfigSet(args[1:], stdout, stderr)
+		return runConfigSet(args[1:], stdin, stdout, stderr)
 	default:
 		fmt.Fprint(stderr, usageText)
 		return 2
@@ -66,7 +67,7 @@ func runConfigGet(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 	if len(args) == 1 {
-		if err := json.NewEncoder(stdout).Encode(cfg); err != nil {
+		if err := json.NewEncoder(stdout).Encode(redactConfig(cfg)); err != nil {
 			fmt.Fprintf(stderr, "encode config: %v\n", err)
 			return 1
 		}
@@ -99,6 +100,33 @@ func runConfigGet(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// redactedConfig is the machine-readable shape of `config get --json`: every
+// field a frontend needs to render setup, with API keys replaced by an
+// existence boolean. Key values never leave the file, so this view is safe to
+// print. It is built fresh from the loaded config; nothing is mutated.
+type redactedConfig struct {
+	Version   int                         `json:"version"`
+	Providers map[string]redactedProvider `json:"providers"`
+}
+
+type redactedProvider struct {
+	Enabled   bool   `json:"enabled"`
+	Live      string `json:"live,omitempty"`
+	APIKeySet bool   `json:"api_key_set"`
+}
+
+func redactConfig(cfg config.Config) redactedConfig {
+	redacted := redactedConfig{Version: cfg.Version, Providers: make(map[string]redactedProvider, len(cfg.Providers))}
+	for id, provider := range cfg.Providers {
+		redacted.Providers[id] = redactedProvider{
+			Enabled:   provider.Enabled,
+			Live:      provider.Live,
+			APIKeySet: provider.APIKey != "",
+		}
+	}
+	return redacted
+}
+
 func effectiveConfig() (config.Config, error) {
 	effective := config.Default()
 	loaded, err := config.Load()
@@ -116,15 +144,16 @@ func effectiveConfig() (config.Config, error) {
 }
 
 type configSetOptions struct {
-	enabled    bool
-	hasEnabled bool
-	apiKey     string
-	hasAPIKey  bool
-	live       string
-	hasLive    bool
+	enabled     bool
+	hasEnabled  bool
+	apiKey      string
+	hasAPIKey   bool
+	apiKeyStdin bool
+	live        string
+	hasLive     bool
 }
 
-func runConfigSet(args []string, stdout, stderr io.Writer) int {
+func runConfigSet(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
 		fmt.Fprint(stderr, usageText)
 		return 2
@@ -135,7 +164,20 @@ func runConfigSet(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	options, valid := parseConfigSetOptions(args[1:])
-	if !valid || (!options.hasEnabled && !options.hasAPIKey && !options.hasLive) {
+	if !valid {
+		fmt.Fprint(stderr, usageText)
+		return 2
+	}
+	if options.apiKeyStdin {
+		key, err := readStdinKey(stdin)
+		if err != nil {
+			fmt.Fprintf(stderr, "config: %v\n", err)
+			return 2
+		}
+		options.apiKey = key
+		options.hasAPIKey = true
+	}
+	if !options.hasEnabled && !options.hasAPIKey && !options.hasLive {
 		fmt.Fprint(stderr, usageText)
 		return 2
 	}
@@ -173,6 +215,16 @@ func runConfigSet(args []string, stdout, stderr io.Writer) int {
 func parseConfigSetOptions(args []string) (configSetOptions, bool) {
 	var result configSetOptions
 	for _, argument := range args {
+		// --api-key-stdin is the only flag without a value; it names which
+		// secret source to use, so providing a key in argv at the same time is
+		// rejected as ambiguous.
+		if argument == "--api-key-stdin" {
+			if result.hasAPIKey || result.apiKeyStdin {
+				return configSetOptions{}, false
+			}
+			result.apiKeyStdin = true
+			continue
+		}
 		name, value, found := strings.Cut(argument, "=")
 		if !found {
 			return configSetOptions{}, false
@@ -185,7 +237,7 @@ func parseConfigSetOptions(args []string) (configSetOptions, bool) {
 			result.enabled, _ = strconv.ParseBool(value)
 			result.hasEnabled = true
 		case "--api-key":
-			if result.hasAPIKey {
+			if result.hasAPIKey || result.apiKeyStdin {
 				return configSetOptions{}, false
 			}
 			result.apiKey = value
@@ -201,6 +253,22 @@ func parseConfigSetOptions(args []string) (configSetOptions, bool) {
 		}
 	}
 	return result, true
+}
+
+// readStdinKey reads the API key as the first line of stdin, trimming exactly
+// one trailing newline. Piping the secret instead of placing it in argv keeps
+// it out of `ps` process listings; an empty line is an error because there is
+// nothing worth saving.
+func readStdinKey(stdin io.Reader) (string, error) {
+	line, err := bufio.NewReader(stdin).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", fmt.Errorf("read API key from stdin: %w", err)
+	}
+	line = strings.TrimSuffix(line, "\n")
+	if line == "" {
+		return "", errors.New("API key from stdin must not be empty")
+	}
+	return line, nil
 }
 
 func validCodexLiveMode(mode string) bool {

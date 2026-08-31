@@ -170,6 +170,65 @@ func TestConfigSetRejectsInvalidModesUnknownProvidersAndMissingFlags(t *testing.
 	}
 }
 
+func TestConfigGetJSONRedactsAPIKeyAndReportsExistencePerProvider(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("QUOTA_MONITOR_DIR", directory)
+	secret := "sk-very-secret-token"
+	data := []byte(`{"version":1,"providers":{"deepinfra":{"enabled":true,"api_key":"` + secret + `"},"claude":{"enabled":true}}}`)
+	if err := os.WriteFile(filepath.Join(directory, "config.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout := runConfigGetJSON(t)
+	if strings.Contains(stdout, secret) {
+		t.Fatalf("config get --json leaked the API key: %q", stdout)
+	}
+	if strings.Contains(stdout, `"api_key":`) {
+		t.Fatalf("config get --json still emits an api_key field: %q", stdout)
+	}
+	// Frontends need existence, not the value: the provider with a key reports
+	// true and the one without reports false.
+	if !strings.Contains(stdout, `"api_key_set":true`) {
+		t.Fatalf("config get --json lacks api_key_set:true for the keyed provider: %q", stdout)
+	}
+	if !strings.Contains(stdout, `"api_key_set":false`) {
+		t.Fatalf("config get --json lacks api_key_set:false for providers without a key: %q", stdout)
+	}
+}
+
+func TestConfigSetReadsAPIKeyFromStdinAndSavesIt(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("QUOTA_MONITOR_DIR", directory)
+	secret := "sk-from-stdin"
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := run([]string{"config", "set", "deepinfra", "--enabled=true", "--api-key-stdin"}, strings.NewReader(secret+"\n"), &stdout, &stderr, time.Now)
+	if exit != 0 {
+		t.Fatalf("config set --api-key-stdin exit = %d, stderr = %q", exit, stderr.String())
+	}
+	if strings.Contains(stdout.String(), secret) {
+		t.Fatalf("config set echoed the stdin API key: %q", stdout.String())
+	}
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Providers["deepinfra"].APIKey; got != secret {
+		t.Fatalf("saved API key = %q, want %q", got, secret)
+	}
+}
+
+func TestConfigSetRejectsMutuallyExclusiveAPIKeyFlags(t *testing.T) {
+	t.Setenv("QUOTA_MONITOR_DIR", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := run([]string{"config", "set", "deepinfra", "--api-key=abc", "--api-key-stdin"}, strings.NewReader("ignored\n"), &stdout, &stderr, time.Now)
+	if exit != 2 || stderr.Len() == 0 {
+		t.Fatalf("config set with both api-key flags exit = %d, stdout = %q, stderr = %q", exit, stdout.String(), stderr.String())
+	}
+}
+
 func runConfigGetJSON(t *testing.T) string {
 	t.Helper()
 	var stdout bytes.Buffer

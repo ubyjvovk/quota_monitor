@@ -84,7 +84,7 @@ func runWithDependencies(args []string, stdin io.Reader, stdout, stderr io.Write
 		case "discover":
 			return runDiscover(args[1:], stdout, stderr, allFindings)
 		case "config":
-			return runConfig(args[1:], stdout, stderr)
+			return runConfig(args[1:], stdin, stdout, stderr)
 		}
 	}
 
