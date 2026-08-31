@@ -23,12 +23,28 @@ echo "==> Stopping any running instance"
 pkill -f "Quota Monitor.app" 2>/dev/null || true
 sleep 1
 
+APP="$ROOT/build/Build/Products/Debug/Quota Monitor.app"
+
+# Remove the previous bundle before building. Without this a compile failure
+# leaves the last good .app in place, and every check below — and `open` — would
+# happily accept it, so you relaunch stale code believing the build worked.
+rm -rf "$APP"
+
 echo "==> Building"
+# The grep filter swallows xcodebuild's exit status: `| grep ... || true` reports
+# grep's result, and grep exits 1 merely because nothing matched. Read
+# xcodebuild's own status out of PIPESTATUS instead. (`set -e` is lifted for the
+# pipeline only, so pipefail cannot abort before PIPESTATUS is captured.)
+set +e
 xcodebuild -project QuotaMonitor.xcodeproj -scheme QuotaMonitor \
   -configuration Debug -derivedDataPath build build 2>&1 \
-  | grep -E "error:|warning: .*(deprecated|unused)|BUILD SUCCEEDED|BUILD FAILED" || true
+  | grep -E "error:|warning: .*(deprecated|unused)|BUILD SUCCEEDED|BUILD FAILED"
+build_status=${PIPESTATUS[0]}
+set -e
+[ "$build_status" -eq 0 ] || {
+  echo "error: xcodebuild failed (exit $build_status) — rerun the xcodebuild line without the grep filter for the full log" >&2
+  exit "$build_status"; }
 
-APP="$ROOT/build/Build/Products/Debug/Quota Monitor.app"
 [ -d "$APP" ] || { echo "error: build produced no app bundle" >&2; exit 1; }
 
 # The app has no fetchers of its own; without the core it shows nothing at all,

@@ -38,6 +38,11 @@ elif [ -n "${4:-}" ]; then
 fi
 
 mkdir -p "$OUTDIR"
+# A reused outdir still holds the previous run's checksum file. Drop it up
+# front: leaving it there makes it a candidate for the glob below, and a
+# SHA256SUMS listing itself can never verify — `shasum -c` reads the file after
+# the line describing it was written, so the digest is always wrong.
+rm -f "$OUTDIR/SHA256SUMS"
 STAGING="$OUTDIR/staging"
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
@@ -81,7 +86,18 @@ cp "$ROOT"/core/bin/quotamon-* "$OUTDIR/"
 echo "==> Writing SHA256SUMS"
 (
   cd "$OUTDIR"
-  shasum -a 256 * > SHA256SUMS
+  rm -f SHA256SUMS SHA256SUMS.tmp
+  files=()
+  for f in *; do
+    if [ -f "$f" ] && [ "$f" != "SHA256SUMS" ]; then
+      files+=("$f")
+    fi
+  done
+  [ ${#files[@]} -gt 0 ] || { echo "error: nothing to checksum in $OUTDIR" >&2; exit 1; }
+  # Write to a temp name and move it into place, so the output file is never
+  # itself part of the set being hashed.
+  shasum -a 256 "${files[@]}" > SHA256SUMS.tmp
+  mv SHA256SUMS.tmp SHA256SUMS
 )
 
 echo "==> Done:"

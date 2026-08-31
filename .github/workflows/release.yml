@@ -107,7 +107,16 @@ jobs:
             --wait
           rm -f notary.p8
           xcrun stapler staple dist/*.dmg
-          (cd dist && shasum -a 256 * > SHA256SUMS)
+          # Stapling rewrote the DMG, so the checksums package.sh wrote are
+          # stale. Rehash by explicit pattern and move the result into place:
+          # SHA256SUMS must never appear in the set it describes, or `shasum -c`
+          # fails on the one file that changed after its own line was written.
+          (
+            cd dist
+            rm -f SHA256SUMS SHA256SUMS.tmp
+            shasum -a 256 *.dmg quotamon-* > SHA256SUMS.tmp
+            mv SHA256SUMS.tmp SHA256SUMS
+          )
 
       # A workflow_dispatch run has no tag to attach a Release to, so drop the
       # artifacts as a build artifact instead.
