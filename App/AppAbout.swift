@@ -11,7 +11,7 @@ enum AppAbout {
 
         let notes = NSMutableAttributedString(
             string: "See how much of your LLM subscription quota you have left — Claude, "
-                + "ChatGPT, Grok, DeepInfra, and Kimi — in one place.\n\n",
+                + "ChatGPT, Grok, and other providers - all in one place.\n\n",
             attributes: [
                 .font: NSFont.systemFont(ofSize: 11),
                 .foregroundColor: NSColor.secondaryLabelColor,
