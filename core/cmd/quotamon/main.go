@@ -26,7 +26,7 @@ import (
 
 const usageText = `Usage: quotamon [--demo] [--no-live] [--fresh] [--color=auto|always|never]
        quotamon --json [--demo] [--no-live] [--fresh] [--color=auto|always|never]
-       quotamon <command> [--demo] [--no-live] [--fresh] [--color=auto|always|never]
+       quotamon <command> [--demo] [--no-live] [--color=auto|always|never]
 
 Commands:
   snapshot  Print the normalized quota snapshot as JSON
@@ -40,7 +40,7 @@ Commands:
 Options:
   --demo                    Render representative built-in data without setup
   --no-live                 Skip live sources
-  --fresh                   Bypass stale-token cached readings
+  --fresh                   Bypass stale-token cached readings (table/snapshot/waybar only)
   --timeout <seconds>       Fetch budget in seconds; any positive number
                             (fractional allowed). Default 15, or the
                             QUOTA_MONITOR_TIMEOUT env var. Flag wins.
@@ -175,7 +175,7 @@ func writeSnapshot(command string, result snapshot.Snapshot, stdout, stderr io.W
 	switch command {
 	case "table":
 		fmt.Fprintln(stdout, renderTableWithColor(result, result.GeneratedAt.Time, colorEnabled))
-		return windowExitStatus(result)
+		return usableReadingExitStatus(result)
 	case "snapshot":
 		encoded, err := result.Encode()
 		if err != nil {
@@ -183,7 +183,7 @@ func writeSnapshot(command string, result snapshot.Snapshot, stdout, stderr io.W
 			return 1
 		}
 		fmt.Fprintln(stdout, string(encoded))
-		return windowExitStatus(result)
+		return usableReadingExitStatus(result)
 	case "waybar":
 		if err := json.NewEncoder(stdout).Encode(renderWaybar(result, result.GeneratedAt.Time)); err != nil {
 			fmt.Fprintf(stderr, "encode Waybar payload: %v\n", err)
@@ -338,10 +338,15 @@ func isKnownCommand(command string) bool {
 	}
 }
 
-func windowExitStatus(result snapshot.Snapshot) int {
+func usableReadingExitStatus(result snapshot.Snapshot) int {
 	for _, provider := range result.Providers {
-		if len(provider.Windows) > 0 {
+		if provider.Credits != nil {
 			return 0
+		}
+		for _, window := range provider.Windows {
+			if _, current := window.CurrentUsedPercent(result.GeneratedAt.Time); current {
+				return 0
+			}
 		}
 	}
 	return 1
