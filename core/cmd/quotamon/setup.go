@@ -30,6 +30,14 @@ func runSetup(stdin io.Reader, stdout, stderr io.Writer, yes bool, allFindings f
 	newConfig := config.Default()
 	if loadErr == nil {
 		newConfig = existing
+	} else if !errors.Is(loadErr, config.ErrMissing) {
+		// A load error other than a missing file means the on-disk config is
+		// broken or unreadable (malformed JSON, 0644 perms on a key-bearing
+		// file). Overwriting it with defaults would silently destroy the stored
+		// API keys, so refuse to write and report the error with what to fix.
+		fmt.Fprintf(stderr, "setup: refusing to overwrite %s: %v\n", config.Path(), loadErr)
+		fmt.Fprintln(stderr, "fix the config above (repair the JSON or run `chmod 600`), then re-run: quotamon setup")
+		return 2
 	} else {
 		// Machine-readable defaults include the full provider catalog, but the
 		// wizard has always omitted providers discovery says are not supported.
@@ -53,7 +61,7 @@ func runSetup(stdin io.Reader, stdout, stderr io.Writer, yes bool, allFindings f
 		provider := newConfig.Providers[finding.ID]
 		defaultEnabled := provider.Enabled
 		if loadErr != nil {
-			// First run (or a broken config): default Y when found, n otherwise.
+			// First run (no config on disk): default Y when found, n otherwise.
 			defaultEnabled = finding.Found
 		}
 
