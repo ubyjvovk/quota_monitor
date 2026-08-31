@@ -544,3 +544,13 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   runinfra` failed. Live-verified on the real account; enabled in the real
   config via --api-key-stdin; app rebuilt. PROVIDERS.md documents the
   endpoint. NOT pushed yet.
+- 2026-08-31 — **OpenRouter + DeepSeek providers landed (T-0063, codex, one
+  shot)**: eight providers total. OpenRouter live-verified with the owner's
+  key (credits shape confirmed against the real endpoint pre-landing; spend
+  is LIFETIME, labelled "all time"; /api/v1/key carries usage_monthly if a
+  monthly row is ever wanted). DeepSeek fixture-tested, live-verify pending a
+  DEEPSEEK_KEY. Z.ai: NO documented quota API (docs index confirms) — needs a
+  Kimi-style dashboard/XHR capture; ZAI_API_KEY is in the shell env, owner to
+  choose the capture route. AGENTS.md now carries the six-place provider
+  checklist. App rebuilt with OpenRouter enabled in the real config. NOT
+  pushed.
