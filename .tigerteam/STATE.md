@@ -536,3 +536,11 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   fetch-quotamon.sh; tamper case verified to abort preserving the old
   binary). Retro updated (session-2). Supervisor wedged + restarted once
   (unclaimed-ticket symptom; manual `worker run --once` as fallback worked).
+- 2026-08-31 — **RunInfra provider landed (T-0062, ds + opus rework)**: sixth
+  provider, live-only credits/spend from api.runinfra.ai/v1/credits (Bearer
+  RUNINFRA_TOKEN; cents ints; available_cents = balance; hard cap → "Cap"
+  window, soft/absent cap → none). Rework was a PM scope miss: the
+  known-provider map in config.Default() wasn't in scope, so `config set
+  runinfra` failed. Live-verified on the real account; enabled in the real
+  config via --api-key-stdin; app rebuilt. PROVIDERS.md documents the
+  endpoint. NOT pushed yet.
