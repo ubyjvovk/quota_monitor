@@ -50,7 +50,7 @@ enum DesignSnapshot {
                 // A non-nil setup so the Settings gear renders; its runner is
                 // never invoked in a static snapshot (the sample data is non-empty,
                 // so first-run detection short-circuits before shelling out).
-                content: QuotaPanelView(setup: QuotamonSetup(runner: QuotamonRunner { _ in Data() }))
+                content: QuotaPanelView(setup: QuotamonSetup(runner: QuotamonRunner { _, _ in Data() }))
                     .environment(engine)
                     .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
                     .frame(width: ConsoleTheme.width)

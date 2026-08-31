@@ -5,9 +5,9 @@ import Testing
 @Suite struct QuotamonRunnerTests {
     @Test func snapshotDecodesCoreFixtureAndFreshAddsItsArgument() async throws {
         let data = try fixtureData()
-        let arguments = ArgumentRecorder()
-        let runner = QuotamonRunner { received in
-            await arguments.append(received)
+        let calls = CallRecorder()
+        let runner = QuotamonRunner { received, standardInput in
+            await calls.append(received, standardInput)
             return data
         }
 
@@ -15,14 +15,16 @@ import Testing
         _ = try await runner.snapshot(fresh: true)
 
         #expect(snapshot.providers.map(\.id) == ["claude", "kimi"])
-        #expect(await arguments.values == [
+        #expect(await calls.arguments == [
             ["snapshot"],
             ["snapshot", "--fresh"],
         ])
+        // A snapshot has no secret to pass, so nothing is written to the child.
+        #expect(await calls.standardInputs == [nil, nil])
     }
 
     @Test func exitThreeBecomesAnActionableSetupError() async {
-        let runner = QuotamonRunner { _ in
+        let runner = QuotamonRunner { _, _ in
             throw QuotamonRunner.ProcessFailure(exitCode: 3, stderr: "not configured\n")
         }
 
@@ -36,8 +38,26 @@ import Testing
         }
     }
 
+    @Test func timeoutReportsTheDeadlineThatCoversTheCoresWorstCase() async {
+        let runner = QuotamonRunner { _, _ in
+            throw QuotamonRunner.ProcessFailure(exitCode: nil, stderr: "", timedOut: true)
+        }
+
+        do {
+            _ = try await runner.snapshot()
+            Issue.record("Expected a timeout failure")
+        } catch QuotaError.transport(let message) {
+            // 45 s, not 15: the core budgets a 25 s Kimi pre-fetch plus a 15 s
+            // fetch, and the old cap killed runs that were about to succeed.
+            #expect(QuotamonRunner.timeout == 45)
+            #expect(message == "quotamon timed out after 45 seconds")
+        } catch {
+            Issue.record("Expected transport, got \(error)")
+        }
+    }
+
     @Test func invalidJSONBecomesAMalformedError() async {
-        let runner = QuotamonRunner { _ in Data("not json".utf8) }
+        let runner = QuotamonRunner { _, _ in Data("not json".utf8) }
 
         do {
             _ = try await runner.snapshot()
@@ -49,13 +69,37 @@ import Testing
         }
     }
 
+    @Test func bundledRunnerFeedsStandardInputAndCapturesStandardOutput() async throws {
+        // `cat` with no arguments is the cheapest possible echo of what the
+        // spawn path writes to the child — it exercises the pipe, the argv and
+        // the captured stdout without depending on the core being built.
+        let runner = QuotamonRunner.bundled(executableURL: URL(fileURLWithPath: "/bin/cat"))
+
+        let data = try await runner.run([], "a-secret-key")
+
+        #expect(String(decoding: data, as: UTF8.self) == "a-secret-key\n")
+    }
+
+    @Test func bundledRunnerReportsANonZeroExitWithItsStandardError() async {
+        let runner = QuotamonRunner.bundled(executableURL: URL(fileURLWithPath: "/bin/sh"))
+
+        do {
+            _ = try await runner.run(["-c", "echo boom >&2; exit 4"], nil)
+            Issue.record("Expected a non-zero exit to fail")
+        } catch QuotaError.transport(let message) {
+            #expect(message == "boom")
+        } catch {
+            Issue.record("Expected transport, got \(error)")
+        }
+    }
+
     @Test func enginePersistsRunnerSnapshotAndKeepsItAfterFailure() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = SnapshotStore(testDirectory: directory)
         let data = try fixtureData()
         let expected = try QuotaSnapshot.decode(from: data)
-        let successfulRunner = QuotamonRunner { _ in data }
+        let successfulRunner = QuotamonRunner { _, _ in data }
         let engine = await QuotaEngine(
             store: store,
             settings: QuotaSettings(),
@@ -68,7 +112,7 @@ import Testing
         #expect(store.load() == expected)
         #expect(await engine.lastError == nil)
 
-        let failingRunner = QuotamonRunner { _ in
+        let failingRunner = QuotamonRunner { _, _ in
             throw QuotaError.transport("stub refresh failed")
         }
         let failingEngine = await QuotaEngine(
@@ -87,10 +131,10 @@ import Testing
     @Test func engineFreshRefreshPropagatesToRunner() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let arguments = ArgumentRecorder()
+        let calls = CallRecorder()
         let data = try fixtureData()
-        let runner = QuotamonRunner { received in
-            await arguments.append(received)
+        let runner = QuotamonRunner { received, standardInput in
+            await calls.append(received, standardInput)
             return data
         }
         let engine = await QuotaEngine(
@@ -101,7 +145,7 @@ import Testing
 
         await engine.refresh(fresh: true)
 
-        #expect(await arguments.values == [["snapshot", "--fresh"]])
+        #expect(await calls.arguments == [["snapshot", "--fresh"]])
     }
 
     private func fixtureData() throws -> Data {
@@ -121,10 +165,12 @@ import Testing
     }
 }
 
-private actor ArgumentRecorder {
-    private(set) var values: [[String]] = []
+private actor CallRecorder {
+    private(set) var arguments: [[String]] = []
+    private(set) var standardInputs: [String?] = []
 
-    func append(_ arguments: [String]) {
-        values.append(arguments)
+    func append(_ arguments: [String], _ standardInput: String?) {
+        self.arguments.append(arguments)
+        standardInputs.append(standardInput)
     }
 }

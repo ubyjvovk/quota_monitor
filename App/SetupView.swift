@@ -17,6 +17,9 @@ struct SetupView: View {
 
     @State private var findings: [SetupFinding] = []
     @State private var enabled: [String: Bool] = [:]
+    /// What the config file said when this pane opened — the baseline Save
+    /// compares against, so an untouched provider is never rewritten.
+    @State private var saved: [String: SavedProvider] = [:]
     @State private var keys: [String: String] = [:]
     @State private var error: String?
     @State private var isLoading = true
@@ -134,11 +137,19 @@ struct SetupView: View {
         defer { isLoading = false }
         do {
             let discovered = try await setup.discover()
+            let stored = try await setup.savedProviders()
             findings = discovered
-            // Default on for what was found: the common case is "yes, use what
-            // I already signed into".
+            saved = stored ?? [:]
+            // A saved choice wins over discovery. Discovery only looks at the
+            // usual credential paths, so a provider the user enabled by hand at
+            // an unusual one comes back "not found" — starting it toggled off
+            // and then saving would silently switch it back off. On a first run
+            // there is nothing saved, and the default is on for what was found:
+            // the common case is "yes, use what I already signed into".
             enabled = Dictionary(
-                uniqueKeysWithValues: discovered.map { ($0.id, $0.supported && $0.found) }
+                uniqueKeysWithValues: discovered.map { finding in
+                    (finding.id, stored?[finding.id]?.enabled ?? (finding.supported && finding.found))
+                }
             )
         } catch {
             self.error = error.localizedDescription
@@ -150,10 +161,16 @@ struct SetupView: View {
         defer { isSaving = false }
         do {
             for finding in findings where finding.supported {
+                let choice = enabled[finding.id] ?? false
+                let key = finding.needsKey ? (keys[finding.id] ?? "") : ""
+                // Only providers the user actually changed are written. A no-op
+                // Save must not rewrite the file: every write is a chance to
+                // clobber something this pane never knew about.
+                guard saved[finding.id]?.enabled != choice || !key.isEmpty else { continue }
                 try await setup.save(
                     id: finding.id,
-                    enabled: enabled[finding.id] ?? false,
-                    apiKey: finding.needsKey ? keys[finding.id] : nil
+                    enabled: choice,
+                    apiKey: key.isEmpty ? nil : key
                 )
             }
         } catch {

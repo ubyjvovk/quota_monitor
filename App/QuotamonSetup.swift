@@ -22,6 +22,22 @@ struct SetupFinding: Decodable, Identifiable, Hashable, Sendable {
     let needsKey: Bool
 }
 
+/// One provider's saved state, as `quotamon config get --json` reports it.
+///
+/// The key itself never crosses this boundary — the core redacts it to an
+/// existence flag — so this shape is safe to hold in the UI.
+struct SavedProvider: Decodable, Hashable, Sendable {
+    /// Whether the user has this provider switched on in the config file.
+    let enabled: Bool
+    /// Whether an API key is already stored for it.
+    let apiKeySet: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case apiKeySet = "api_key_set"
+    }
+}
+
 /// Drives first-run configuration through the bundled `quotamon`.
 ///
 /// Discovery, the config path and every write go through the same executable the
@@ -46,13 +62,27 @@ struct QuotamonSetup: Sendable {
     /// Probes local credentials for every known provider. Reads files and, on
     /// macOS, the Keychain item's existence — it contacts no provider.
     func discover() async throws -> [SetupFinding] {
-        let data = try await runner.run(["discover", "--json"])
+        let data = try await runner.run(["discover", "--json"], nil)
         return try JSONDecoder().decode([SetupFinding].self, from: data)
+    }
+
+    /// What the config file already says, keyed by provider id, or `nil` on a
+    /// first run.
+    ///
+    /// `config get --json` answers with defaults merged over the file, so it
+    /// cannot itself distinguish "saved as off" from "never configured"; the
+    /// missing-file check is what draws that line. Callers need it because a
+    /// choice the user made is not something discovery may overrule.
+    func savedProviders() async throws -> [String: SavedProvider]? {
+        guard await !configIsMissing() else { return nil }
+        let data = try await runner.run(["config", "get", "--json"], nil)
+        struct Payload: Decodable { let providers: [String: SavedProvider] }
+        return try JSONDecoder().decode(Payload.self, from: data).providers
     }
 
     /// Path of the mandatory config file, whether or not it exists yet.
     func configPath() async throws -> String {
-        let data = try await runner.run(["config", "path"])
+        let data = try await runner.run(["config", "path"], nil)
         return String(decoding: data, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -70,12 +100,17 @@ struct QuotamonSetup: Sendable {
     /// Records one provider's choice via `quotamon config set`.
     ///
     /// `apiKey` is written only when non-empty, so re-running setup without
-    /// retyping a key leaves the stored one intact.
+    /// retyping a key leaves the stored one intact. When there is a key it goes
+    /// down the child's standard input under `--api-key-stdin` and never into
+    /// argv: process arguments are readable by every user on the machine
+    /// (`ps -ww`), which would leak the key for as long as the child lives.
     func save(id: String, enabled: Bool, apiKey: String?) async throws {
         var arguments = ["config", "set", id, "--enabled=\(enabled)"]
+        var standardInput: String?
         if let apiKey, !apiKey.isEmpty {
-            arguments.append("--api-key=\(apiKey)")
+            arguments.append("--api-key-stdin")
+            standardInput = apiKey
         }
-        _ = try await runner.run(arguments)
+        _ = try await runner.run(arguments, standardInput)
     }
 }
