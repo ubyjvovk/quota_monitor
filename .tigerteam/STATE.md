@@ -528,3 +528,11 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   staleness marker; SetupView merges saved config; SHA256SUMS + build.sh
   fixes; omarchy watchdog. PM built+rendered T-0054/55 by hand. App rebuilt
   from master. NOT pushed — awaiting user.
+- 2026-08-31 — **Omarchy zero-friction install shipped (T-0060)**: plugin
+  published to github.com/ubyjvovk/quotamon-omarchy via
+  `scripts/publish-omarchy-plugin.sh` (subtree split of omarchy/, force-push;
+  source of truth stays here). Install = `omarchy plugin add <url>` → click
+  the bar icon → "Install quotamon" (bundled checksum-verified
+  fetch-quotamon.sh; tamper case verified to abort preserving the old
+  binary). Retro updated (session-2). Supervisor wedged + restarted once
+  (unclaimed-ticket symptom; manual `worker run --once` as fallback worked).
