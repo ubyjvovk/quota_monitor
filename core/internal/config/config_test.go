@@ -87,7 +87,7 @@ func TestQuotaMonitorDirectoryOverridesTheConfigPath(t *testing.T) {
 
 func TestDefaultHasEveryProviderDisabled(t *testing.T) {
 	providers := Default().Providers
-	for _, id := range []string{"claude", "codex", "deepinfra", "grok", "kimi", "runinfra"} {
+	for _, id := range []string{"claude", "codex", "deepinfra", "grok", "kimi", "runinfra", "openrouter", "deepseek"} {
 		provider, found := providers[id]
 		if !found {
 			t.Errorf("Default().Providers is missing %q", id)
@@ -95,8 +95,8 @@ func TestDefaultHasEveryProviderDisabled(t *testing.T) {
 			t.Errorf("Default().Providers[%q].Enabled = true, want false", id)
 		}
 	}
-	if got := len(providers); got != 6 {
-		t.Fatalf("Default().Providers has %d entries, want 6", got)
+	if got := len(providers); got != 8 {
+		t.Fatalf("Default().Providers has %d entries, want 8", got)
 	}
 }
 

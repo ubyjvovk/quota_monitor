@@ -62,14 +62,27 @@ func TestRenderWaybarUsesTheKimiShortName(t *testing.T) {
 	}
 }
 
-func TestRenderWaybarUsesTheRunInfraShortName(t *testing.T) {
-	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
-	provider := waybarProvider("runinfra", "RunInfra", 16, now)
+func TestRenderWaybarUsesCreditProviderShortNames(t *testing.T) {
+	tests := []struct {
+		name        string
+		id          string
+		displayName string
+		want        string
+	}{
+		{name: "RunInfra", id: "runinfra", displayName: "RunInfra", want: "RI 16%"},
+		{name: "OpenRouter", id: "openrouter", displayName: "OpenRouter", want: "OR 16%"},
+		{name: "DeepSeek", id: "deepseek", displayName: "DeepSeek", want: "DS 16%"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+			provider := waybarProvider(test.id, test.displayName, 16, now)
 
-	got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
-
-	if got.Text != "RI 16%" {
-		t.Fatalf("renderWaybar().Text = %q, want the RI short name", got.Text)
+			got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
+			if got.Text != test.want {
+				t.Fatalf("renderWaybar().Text = %q, want %q", got.Text, test.want)
+			}
+		})
 	}
 }
 

@@ -11,8 +11,10 @@ import (
 	"quotamon/internal/providers/claude"
 	"quotamon/internal/providers/codex"
 	"quotamon/internal/providers/deepinfra"
+	"quotamon/internal/providers/deepseek"
 	"quotamon/internal/providers/grok"
 	"quotamon/internal/providers/kimi"
+	"quotamon/internal/providers/openrouter"
 	"quotamon/internal/providers/runinfra"
 	"quotamon/internal/source"
 )
@@ -53,7 +55,7 @@ func All(options Options) []hybrid.Provider {
 		codexLive = codex.AppServerSource{}
 	}
 
-	providers := make([]hybrid.Provider, 0, 6)
+	providers := make([]hybrid.Provider, 0, 8)
 	if configured[claude.ProviderID].Enabled {
 		providers = append(providers, hybrid.Provider{
 			ID:             claude.ProviderID,
@@ -141,6 +143,42 @@ func All(options Options) []hybrid.Provider {
 				return environment("RUNINFRA_TOKEN")
 			}},
 			LiveEnabled:    liveEnabled(runinfra.ProviderID),
+			ShortestWindow: 30 * 24 * time.Hour,
+			Cache:          readingCache,
+			Fresh:          options.Fresh,
+		})
+	}
+	if configured[openrouter.ProviderID].Enabled {
+		openRouterConfig := configured[openrouter.ProviderID]
+		providers = append(providers, hybrid.Provider{
+			ID:          openrouter.ProviderID,
+			DisplayName: openrouter.DisplayName,
+			Local:       nil,
+			Live: openrouter.LiveSource{Key: func() string {
+				if openRouterConfig.APIKey != "" {
+					return openRouterConfig.APIKey
+				}
+				return environment("OPENROUTER_KEY")
+			}},
+			LiveEnabled:    liveEnabled(openrouter.ProviderID),
+			ShortestWindow: 30 * 24 * time.Hour,
+			Cache:          readingCache,
+			Fresh:          options.Fresh,
+		})
+	}
+	if configured[deepseek.ProviderID].Enabled {
+		deepSeekConfig := configured[deepseek.ProviderID]
+		providers = append(providers, hybrid.Provider{
+			ID:          deepseek.ProviderID,
+			DisplayName: deepseek.DisplayName,
+			Local:       nil,
+			Live: deepseek.LiveSource{Key: func() string {
+				if deepSeekConfig.APIKey != "" {
+					return deepSeekConfig.APIKey
+				}
+				return environment("DEEPSEEK_KEY")
+			}},
+			LiveEnabled:    liveEnabled(deepseek.ProviderID),
 			ShortestWindow: 30 * 24 * time.Hour,
 			Cache:          readingCache,
 			Fresh:          options.Fresh,
