@@ -3,10 +3,17 @@
 See how much of your LLM subscription quota you have left across every
 provider at once — in the terminal, the macOS menu bar, a Waybar module,
 or an Omarchy bar widget.
-It reads your **Claude** (Anthropic), **ChatGPT** (Codex), **Grok** (xAI),
-**DeepInfra**, and **Kimi** (Moonshot) accounts and shows one normalised view
-so you can tell, at a glance, which provider you are about to hit the ceiling
-on.
+It reads your provider accounts and shows one normalised view so you can
+tell, at a glance, which one you are about to hit the ceiling on:
+
+- **Claude** (Anthropic) — 5-hour and weekly quota windows, extra-usage credits
+- **ChatGPT** (OpenAI Codex) — 5-hour and weekly quota windows
+- **Grok** (xAI) — weekly window, prepaid credits
+- **DeepSeek** — prepaid platform balance
+- **DeepInfra** — prepaid balance, monthly spend, spending-limit window
+- **Kimi** (Moonshot) — 5-hour and weekly quota windows
+- **OpenRouter** — prepaid credits, lifetime spend
+- **RunInfra** — prepaid credits, monthly spend, optional spend-cap window
 
 <p align="center">
   <img src="docs/console.png" alt="quotamon terminal output" width="46%">
