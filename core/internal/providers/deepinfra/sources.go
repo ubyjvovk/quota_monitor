@@ -128,13 +128,17 @@ func (s LiveSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	}
 	month := list[0]
 
-	spentUSD := 0.0
-	if value, found := jsonx.Get(month, "total_cost"); found {
-		// total_cost is in cents; spend is reported in whole USD.
-		if cents, valid := jsonx.Float(value); valid {
-			spentUSD = cents / 100
-		}
+	value, found := jsonx.Get(month, "total_cost")
+	if !found {
+		return snapshot.Provider{}, source.Errorf(source.Malformed, "Unrecognised response from DeepInfra usage endpoint")
 	}
+	// total_cost is in cents; spend is reported in whole USD. A missing or
+	// malformed value is an unusable usage reading, not zero spend.
+	cents, valid := jsonx.Float(value)
+	if !valid {
+		return snapshot.Provider{}, source.Errorf(source.Malformed, "Unrecognised response from DeepInfra usage endpoint")
+	}
+	spentUSD := cents / 100
 
 	var periodEnd *time.Time
 	if value, found := jsonx.Get(month, "interval", "to"); found {
@@ -176,11 +180,13 @@ func balanceFromChecklist(checklist any) Balance {
 	if value, found := jsonx.Get(checklist, "stripe_balance"); found {
 		if amount, valid := jsonx.Float(value); valid {
 			balance.Stripe = amount
+			balance.StripeKnown = true
 		}
 	}
 	if value, found := jsonx.Get(checklist, "recent"); found {
 		if amount, valid := jsonx.Float(value); valid {
 			balance.Recent = amount
+			balance.RecentKnown = true
 		}
 	}
 	if value, found := jsonx.Get(checklist, "suspended"); found {

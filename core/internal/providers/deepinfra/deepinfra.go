@@ -30,10 +30,14 @@ type Balance struct {
 	// Stripe is the prepaid balance in USD: negative is funds ready to spend,
 	// positive is money owed, zero means no prepaid funds.
 	Stripe float64
+	// StripeKnown reports whether stripe_balance was present and numeric.
+	StripeKnown bool
 	// Recent is the not-yet-invoiced usage in USD that will be debited from
 	// Stripe once the usage invoice is issued, so the spendable headroom is
 	// -Stripe - Recent rather than the raw Stripe figure.
 	Recent float64
+	// RecentKnown reports whether recent was present and numeric.
+	RecentKnown bool
 	// Known reports whether the checklist was read successfully. When false the
 	// spend-only fallback is used because there is no balance to trust.
 	Known bool
@@ -55,12 +59,14 @@ func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time
 	credits := snapshot.Credits{
 		HasCredits: false,
 		Unlimited:  !hasLimit,
-		Balance:    &spend,
 		Enabled:    true,
 		Spend:      &spend,
 	}
 
 	if balance.Known {
+		credits.Enabled = !balance.Suspended
+	}
+	if balance.Known && balance.StripeKnown && balance.RecentKnown {
 		// stripe_balance is funds on account BEFORE the not-yet-invoiced usage in
 		// recent; credit is debited only when the usage invoice is issued, so the
 		// spendable headroom is -Stripe - Recent (the dashboard's "remaining").
@@ -83,7 +89,6 @@ func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time
 			credits.Unlimited = false
 			credits.Balance = &owed
 		}
-		credits.Enabled = !balance.Suspended
 	}
 
 	var windows []snapshot.Window
@@ -115,7 +120,7 @@ func Snapshot(limitUSD float64, hasLimit bool, spentUSD float64, periodEnd *time
 			status = snapshot.Failed("DeepInfra account suspended: " + balance.SuspendReason)
 		case balance.OverdueInvoices > 0:
 			// Money is owed, so the difference from the owed mapping matters.
-			status = snapshot.NeedsSetup(fmt.Sprintf("DeepInfra has $%d in overdue invoices", balance.OverdueInvoices))
+			status = snapshot.NeedsSetup(fmt.Sprintf("DeepInfra has %d overdue invoice(s)", balance.OverdueInvoices))
 		}
 	}
 

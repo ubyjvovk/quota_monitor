@@ -100,7 +100,7 @@ func TestLiveSourceHitsThePaymentPathsWithoutV1AndSendsTheBearer(t *testing.T) {
 				t.Errorf("checklist request query = %q, want none", request.URL.RawQuery)
 			}
 			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{"stripe_balance":-18.0,"suspended":false,"overdue_invoices":0.0}`))
+			_, _ = writer.Write([]byte(`{"stripe_balance":-18.0,"recent":0.0,"suspended":false,"overdue_invoices":0.0}`))
 			return
 		}
 		t.Errorf("unexpected request path %q (endpoints must not be under /v1)", request.URL.Path)
@@ -153,6 +153,71 @@ func TestLiveSourceFetchesAllThreeEndpointsConcurrently(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
 		t.Fatalf("Fetch() took %s, want less than 500ms for parallel calls", elapsed)
+	}
+}
+
+func TestLiveSourceRejectsUsageMonthWithoutValidTotalCost(t *testing.T) {
+	tests := []struct {
+		name  string
+		usage string
+	}{
+		{name: "missing total cost", usage: `{"months":[{}]}`},
+		{name: "malformed total cost", usage: `{"months":[{"total_cost":null}]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				switch request.URL.Path {
+				case "/payment/config":
+					_, _ = writer.Write([]byte(`{"limit":-1.0}`))
+				case "/payment/usage":
+					_, _ = writer.Write([]byte(test.usage))
+				case "/payment/checklist":
+					_, _ = writer.Write([]byte(`{}`))
+				default:
+					http.NotFound(writer, request)
+				}
+			}))
+			defer server.Close()
+
+			_, err := (LiveSource{BaseURL: server.URL, Client: server.Client(), Key: func() string { return "tok" }}).Fetch(context.Background())
+			var sourceError *source.Error
+			if !errors.As(err, &sourceError) || sourceError.Kind != source.Malformed {
+				t.Fatalf("Fetch() error = %v, want Malformed", err)
+			}
+		})
+	}
+}
+
+func TestLiveSourceReportsSpendWithoutBalanceWhenChecklistMoneyFieldsAreMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/payment/config":
+			_, _ = writer.Write([]byte(`{"limit":-1.0}`))
+		case "/payment/usage":
+			_, _ = writer.Write([]byte(`{"months":[{"total_cost":775}]}`))
+		case "/payment/checklist":
+			_, _ = writer.Write([]byte(`{}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	provider, err := (LiveSource{BaseURL: server.URL, Client: server.Client(), Key: func() string { return "tok" }}).Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.Credits == nil || provider.Credits.Spend == nil || *provider.Credits.Spend != "$7.75 this month" {
+		t.Fatalf("Fetch().Credits.Spend = %v, want $7.75 this month", provider.Credits)
+	}
+	if provider.Credits.Balance != nil {
+		t.Fatalf("Fetch().Credits.Balance = %q, want omitted for unknown checklist money", *provider.Credits.Balance)
+	}
+	if provider.Status != snapshot.OK() {
+		t.Fatalf("Fetch().Status = %#v, want ok", provider.Status)
 	}
 }
 
@@ -282,22 +347,22 @@ func TestStripeBalanceMappings(t *testing.T) {
 	}{
 		{
 			name:        "spendable balance is account funds minus recent usage",
-			balance:     Balance{Known: true, Stripe: -18.0, Recent: 7.97},
+			balance:     Balance{Known: true, Stripe: -18.0, StripeKnown: true, Recent: 7.97, RecentKnown: true},
 			wantCredits: true, wantBalance: "$10.03",
 		},
 		{
 			name:        "owed balance sums account debt and recent usage",
-			balance:     Balance{Known: true, Stripe: 5.0, Recent: 2.0},
+			balance:     Balance{Known: true, Stripe: 5.0, StripeKnown: true, Recent: 2.0, RecentKnown: true},
 			wantCredits: false, wantBalance: "$7.00 owed",
 		},
 		{
 			name:        "remaining funds down to cents still report spendable headroom",
-			balance:     Balance{Known: true, Stripe: -8.0, Recent: 7.97},
+			balance:     Balance{Known: true, Stripe: -8.0, StripeKnown: true, Recent: 7.97, RecentKnown: true},
 			wantCredits: true, wantBalance: "$0.03",
 		},
 		{
 			name:        "equal prepaid funds and recent usage report exactly zero",
-			balance:     Balance{Known: true, Stripe: -8.0, Recent: 8.0},
+			balance:     Balance{Known: true, Stripe: -8.0, StripeKnown: true, Recent: 8.0, RecentKnown: true},
 			wantCredits: false, wantBalance: "$0.00",
 		},
 	}
@@ -313,15 +378,35 @@ func TestStripeBalanceMappings(t *testing.T) {
 }
 
 func TestSuspendedAndOverdueInvoicesSetActionableStatus(t *testing.T) {
-	suspended := Snapshot(-1, false, 7.75, nil, observedAt, Balance{Known: true, Stripe: -18.0, Recent: 7.97, Suspended: true, SuspendReason: "unpaid balance"})
+	suspended := Snapshot(-1, false, 7.75, nil, observedAt, Balance{Known: true, Stripe: -18.0, StripeKnown: true, Recent: 7.97, RecentKnown: true, Suspended: true, SuspendReason: "unpaid balance"})
 	assertPrepaidCredits(t, suspended.Credits, true, "$10.03", false, "$7.75 this month")
 	if suspended.Status.State != "failed" || !strings.Contains(suspended.Status.Message, "suspended") || !strings.Contains(suspended.Status.Message, "unpaid balance") {
 		t.Fatalf("Snapshot().Status = %#v, want failed with suspend reason", suspended.Status)
 	}
 
 	overdue := Snapshot(-1, false, 7.75, nil, observedAt, Balance{Known: true, OverdueInvoices: 2})
-	if overdue.Status.State != "needsSetup" || !strings.Contains(overdue.Status.Message, "overdue") || !strings.Contains(overdue.Status.Message, "2") {
-		t.Fatalf("Snapshot().Status = %#v, want needsSetup with overdue count", overdue.Status)
+	wantStatus := snapshot.NeedsSetup("DeepInfra has 2 overdue invoice(s)")
+	if overdue.Status != wantStatus {
+		t.Fatalf("Snapshot().Status = %#v, want %#v", overdue.Status, wantStatus)
+	}
+}
+
+func TestChecklistKeepsParsedMoneyComponentsUnknownSeparately(t *testing.T) {
+	root, err := jsonx.Parse([]byte(`{"stripe_balance":-18.0,"recent":"drift"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	balance := balanceFromChecklist(root)
+	if !balance.StripeKnown || balance.Stripe != -18.0 {
+		t.Fatalf("balance stripe = %#v, want parsed -18.0 component", balance)
+	}
+	if balance.RecentKnown {
+		t.Fatalf("balance recent = %#v, want unknown malformed component", balance)
+	}
+	provider := Snapshot(-1, false, 7.75, nil, observedAt, balance)
+	if provider.Credits == nil || provider.Credits.Balance != nil {
+		t.Fatalf("Snapshot().Credits.Balance = %v, want omitted for incomplete money fields", provider.Credits)
 	}
 }
 
@@ -429,7 +514,7 @@ func assertPrepaidCredits(t *testing.T, credits *snapshot.Credits, hasCredits bo
 
 // assertSpendCredits checks the spend-only credits contract: never a spendable
 // balance, so HasCredits is always false, with spend reported as "X this month".
-func assertSpendCredits(t *testing.T, credits *snapshot.Credits, unlimited bool, balance string) {
+func assertSpendCredits(t *testing.T, credits *snapshot.Credits, unlimited bool, spend string) {
 	t.Helper()
 	if credits == nil {
 		t.Fatal("Snapshot().Credits is nil")
@@ -437,8 +522,11 @@ func assertSpendCredits(t *testing.T, credits *snapshot.Credits, unlimited bool,
 	if credits.HasCredits || credits.Unlimited != unlimited || !credits.Enabled {
 		t.Fatalf("Snapshot().Credits = %#v, want HasCredits false Unlimited %v Enabled true", credits, unlimited)
 	}
-	if credits.Balance == nil || *credits.Balance != balance {
-		t.Fatalf("Snapshot().Credits.Balance = %v, want %q", credits.Balance, balance)
+	if credits.Balance != nil {
+		t.Fatalf("Snapshot().Credits.Balance = %q, want omitted", *credits.Balance)
+	}
+	if credits.Spend == nil || *credits.Spend != spend {
+		t.Fatalf("Snapshot().Credits.Spend = %v, want %q", credits.Spend, spend)
 	}
 }
 

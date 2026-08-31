@@ -16,8 +16,10 @@ Data comes from the DeepInfra payment API; the paths are **not** under `/v1`:
 - `GET /payment/config` returns the USD spending limit (`limit <= 0` means no
   limit).
 - `GET /payment/usage?from=current` returns `months[0]` with `total_cost` in
-  **cents** and `interval.to` in **epoch milliseconds** — this is the Spend
-  reading ("$X.XX this month").
+	**cents** and `interval.to` in **epoch milliseconds** — this is the Spend
+	reading ("$X.XX this month").
+- A missing or malformed `months[0].total_cost` makes the usage response
+	malformed; it is never treated as zero spend.
 - `GET /payment/checklist` returns the prepaid balance and account status:
   `stripe_balance` (**negative = funds ready to spend, positive = money owed**,
   by the vendor's OpenAPI description), `suspended` / `suspend_reason`,
@@ -44,6 +46,9 @@ responses can complete without consuming an unbounded refresh.
   `Enabled: !suspended`.
 - `remaining == 0` → `"$0.00"`, `HasCredits: false`.
 - `remaining < 0` → `"$X.XX owed"`, `HasCredits: false`.
+- A missing or malformed `stripe_balance` or `recent` component omits the
+	derived balance while retaining any component that did parse and the Spend
+	reading.
 - Checklist failed but usage succeeded → the spend-only fallback with a
   "Balance unavailable" `NeedsSetup` status, so a balance outage never hides
   month-to-date spend.
