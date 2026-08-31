@@ -36,7 +36,8 @@ BarWidget {
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
 
   function closeForPopoutSwitch() {
-    if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
+    if (panelLoader.item && typeof panelLoader.item.closeForPopoutSwitch === "function")
+      panelLoader.item.closeForPopoutSwitch()
   }
 
   visible: true

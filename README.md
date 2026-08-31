@@ -96,8 +96,8 @@ make matrix               # darwin/arm64, linux/amd64, linux/arm64
 
 [`omarchy/`](omarchy/README.md) is an Omarchy shell bar widget. The icon
 stacks one usage bar per provider (tightest window, coloured by severity),
-matching the macOS menu-bar glyph. Click opens a dropdown with a Refresh
-button.
+in the panel's provider order (top bar = first row), matching the macOS
+menu-bar glyph. Click opens a dropdown with a Refresh button.
 
 ```bash
 mkdir -p ~/.config/omarchy/plugins/quotamon
@@ -106,9 +106,10 @@ omarchy restart shell
 omarchy plugin enable quotamon --section center --after omarchy.clock
 ```
 
-`quotamon` must be on `PATH`. After editing plugin files, remount with
-`omarchy restart shell` — a file-watch reload often leaves the old icon
-mounted.
+`quotamon` must be on `PATH`; see the plugin README for configuring an absolute
+path. On per-monitor bars, each bar instance fetches independently. After
+editing plugin files, remount with `omarchy restart shell` — a file-watch
+reload often leaves the old icon mounted.
 
 ### Waybar
 

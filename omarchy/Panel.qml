@@ -13,7 +13,6 @@ Panel {
 
   property var anchorItem: null
   property var hostWidget: null
-  property bool openedFromHotkey: false
   readonly property var barIdentity: hostWidget || root
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
@@ -28,25 +27,22 @@ Panel {
   property bool pendingFresh: false
   property double nowMs: Date.now()
 
-  readonly property string binary: String(setting("exec", "quotamon"))
-  readonly property int refreshIntervalSec: Math.max(30, Number(setting("refreshIntervalSec", 300)))
+  readonly property string binary: {
+    var value = String(setting("exec", "quotamon")).trim()
+    return value === "" ? "quotamon" : value
+  }
+  readonly property int refreshIntervalSec: {
+    var value = Number(setting("refreshIntervalSec", 300))
+    return isFinite(value) ? Math.min(3600, Math.max(30, Math.round(value))) : 300
+  }
   readonly property var rows: Model.providerRows(snapshot, nowMs)
   readonly property var iconBars: Model.iconBars(snapshot, nowMs)
   readonly property var headlinePercent: Model.tightestPercent(snapshot, nowMs)
   readonly property string severity: Model.severity(headlinePercent)
   readonly property bool alarming: severity === "critical"
-  readonly property string label: "󰓅"
-
   function clamp(value, lo, hi) { return Math.max(lo, Math.min(hi, value)) }
 
-  function open() {
-    openedFromHotkey = false
-    setCenterHoverRevealSuppressed(false)
-    root.controller.show()
-  }
-
   function openFromHotkey() {
-    openedFromHotkey = true
     root.controller.show()
     Qt.callLater(function() {
       if (root.opened) setCenterHoverRevealSuppressed(true)
@@ -74,11 +70,6 @@ Panel {
       root.bar.centerHoverRevealSuppressed = value
   }
 
-  function fetchCommand(fresh) {
-    var flags = fresh ? " --json --fresh" : " --json"
-    return "PATH=\"$HOME/.local/bin:$PATH\" " + root.binary + flags
-  }
-
   function refresh() {
     refreshNow(true)
   }
@@ -90,7 +81,12 @@ Panel {
     }
     lastError = ""
     refreshing = true
-    fetchProc.command = ["bash", "-lc", fetchCommand(fresh === true)]
+    fetchProc.stdoutBuf = ""
+    fetchProc.stderrBuf = ""
+    fetchProc.currentFresh = fresh === true
+    fetchProc.command = fetchProc.currentFresh
+      ? [root.binary, "--json", "--fresh"]
+      : [root.binary, "--json"]
     fetchProc.running = true
   }
 
@@ -101,32 +97,51 @@ Panel {
       lastError = ""
       return
     }
-    var text = String(raw || "").trim()
-    if (text !== "") lastError = text
+    lastError = "unparseable quotamon output: " + String(raw || "").slice(0, 200)
   }
 
-  onOpenedChanged: if (opened) {
-    nowMs = Date.now()
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  onOpenedChanged: {
+    if (opened) {
+      nowMs = Date.now()
+      Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    } else {
+      setCenterHoverRevealSuppressed(false)
+    }
+  }
+
+  onRowsChanged: {
+    if (opened) {
+      var preservedY = panelFlick.contentY
+      Qt.callLater(function() {
+        var maximumY = Math.max(0, panelFlick.contentHeight - panelFlick.height)
+        panelFlick.contentY = root.clamp(preservedY, 0, maximumY)
+      })
+    }
   }
 
   Process {
     id: fetchProc
+    property string stdoutBuf: ""
+    property string stderrBuf: ""
+    property bool currentFresh: false
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.applyOutput(text)
+      onStreamFinished: fetchProc.stdoutBuf = String(text || "")
     }
     stderr: StdioCollector {
       waitForEnd: true
-      onStreamFinished: {
-        var err = String(text || "").trim()
-        if (err !== "") root.lastError = err
-      }
+      onStreamFinished: fetchProc.stderrBuf = String(text || "")
     }
-    onExited: function() {
+    onExited: function(exitCode, exitStatus) {
       root.refreshing = false
-      if (root.pendingFresh) {
-        root.pendingFresh = false
+      if (exitCode === 0)
+        root.applyOutput(fetchProc.stdoutBuf)
+      else
+        root.lastError = fetchProc.stderrBuf.trim() || ("quotamon exited " + exitCode)
+
+      var requeueFresh = root.pendingFresh && !fetchProc.currentFresh
+      root.pendingFresh = false
+      if (requeueFresh) {
         Qt.callLater(function() { root.refreshNow(true) })
       }
     }
@@ -136,7 +151,12 @@ Panel {
     interval: root.refreshIntervalSec * 1000
     running: true
     repeat: true
-    triggeredOnStart: true
+    onTriggered: root.refreshNow(false)
+  }
+
+  Timer {
+    interval: 1000
+    running: true
     onTriggered: root.refreshNow(false)
   }
 
@@ -191,6 +211,16 @@ Panel {
           width: panelFlick.width
           spacing: Style.space(12)
 
+          Text {
+            visible: root.lastError !== ""
+            width: parent.width
+            text: root.lastError
+            color: root.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
           Repeater {
             model: root.rows
 
@@ -242,6 +272,7 @@ Panel {
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
               }
             }
           }
@@ -250,9 +281,7 @@ Panel {
             visible: root.rows.length === 0
             width: parent.width
             topPadding: Style.space(12)
-            text: root.lastError !== ""
-              ? root.lastError
-              : "No quota readings yet.\nRun `quotamon setup` if this is the first time."
+            text: "No quota readings yet.\nRun `quotamon setup` if this is the first time."
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
