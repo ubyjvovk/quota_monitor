@@ -49,6 +49,7 @@ func Default() Config {
 		"deepinfra": {},
 		"grok":      {},
 		"kimi":      {},
+		"runinfra":  {},
 	}}
 }
 

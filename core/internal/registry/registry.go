@@ -13,6 +13,7 @@ import (
 	"quotamon/internal/providers/deepinfra"
 	"quotamon/internal/providers/grok"
 	"quotamon/internal/providers/kimi"
+	"quotamon/internal/providers/runinfra"
 	"quotamon/internal/source"
 )
 
@@ -52,7 +53,7 @@ func All(options Options) []hybrid.Provider {
 		codexLive = codex.AppServerSource{}
 	}
 
-	providers := make([]hybrid.Provider, 0, 5)
+	providers := make([]hybrid.Provider, 0, 6)
 	if configured[claude.ProviderID].Enabled {
 		providers = append(providers, hybrid.Provider{
 			ID:             claude.ProviderID,
@@ -124,6 +125,24 @@ func All(options Options) []hybrid.Provider {
 			ShortestWindow: 5 * time.Hour,
 			TokenStale:     kimiTokenStale,
 			Refresh:        refresher.Refresh,
+			Fresh:          options.Fresh,
+		})
+	}
+	if configured[runinfra.ProviderID].Enabled {
+		runInfraConfig := configured[runinfra.ProviderID]
+		providers = append(providers, hybrid.Provider{
+			ID:          runinfra.ProviderID,
+			DisplayName: runinfra.DisplayName,
+			Local:       nil,
+			Live: runinfra.LiveSource{Key: func() string {
+				if runInfraConfig.APIKey != "" {
+					return runInfraConfig.APIKey
+				}
+				return environment("RUNINFRA_TOKEN")
+			}},
+			LiveEnabled:    liveEnabled(runinfra.ProviderID),
+			ShortestWindow: 30 * 24 * time.Hour,
+			Cache:          readingCache,
 			Fresh:          options.Fresh,
 		})
 	}

@@ -62,6 +62,17 @@ func TestRenderWaybarUsesTheKimiShortName(t *testing.T) {
 	}
 }
 
+func TestRenderWaybarUsesTheRunInfraShortName(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	provider := waybarProvider("runinfra", "RunInfra", 16, now)
+
+	got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
+
+	if got.Text != "RI 16%" {
+		t.Fatalf("renderWaybar().Text = %q, want the RI short name", got.Text)
+	}
+}
+
 func TestProviderTooltipOrdersWindowsLikeTheTable(t *testing.T) {
 	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
 	provider := waybarProvider("claude", "Claude", 0, now)

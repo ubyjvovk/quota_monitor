@@ -377,6 +377,47 @@ percentage.
 
 ---
 
+## RunInfra (runinfra.ai) — WORKING, credits + spend (added 2026-08-31)
+
+**Credential.** Plain API key. Read it from the config file's
+`runinfra.api_key`, falling back to the **`RUNINFRA_TOKEN`** environment
+variable. A 401/403 means the key is bad. No token refresh: it is a plain key.
+
+**Endpoint.** Live-only (no local file source):
+
+```
+GET https://api.runinfra.ai/v1/credits
+Authorization: Bearer <key>
+→ {"object":"credits","balance_cents":2560,"held_cents":60,
+   "available_cents":2500,"currency":"usd",
+   "period":{"start":"2026-08-01T00:00:00.000Z","spent_cents":785},
+   "spend_cap":{"limit_cents":5000,"hard":true,"used_cents":785,
+     "remaining_cents":4215,"gates_inference":false},
+   "plan_tier":"pro","as_of":"2026-08-31T19:48:55.384Z"}
+```
+
+PM-verified **200** against a real account. All money is in **US cents**,
+integers. Fixture: `runinfra-credits.json`.
+
+**Gotchas.**
+- Admission checks the **`available_cents`** headroom — never the ledger
+  `balance_cents` (which includes held funds) nor the transient `held_cents`.
+  Present `available_cents` as the Balance.
+- `spend_cap.*` fields are **null when no cap is set**; `hard:false` = alert-
+  only. A **soft or absent cap yields no quota window**: `gates_inference` is
+  false, so a soft cap is advisory and must not read as quota pressure. A
+  window appears only when `limit_cents` is present, positive, and `hard:true`;
+  `usedPercent = used_cents / limit_cents * 100`. The API gives no period end,
+  so the cap window has no reset time.
+- Timestamps (`period.start`, `as_of`) carry **fractional seconds + Z**; the
+  parser must accept them (our emitted snapshot stays fractional-free).
+- **Rate limit: 60 reads/min per key.** 429 is rate limited; other non-200 is
+  a transport failure.
+- Missing/malformed `available_cents` or `period.spent_cents` is a malformed
+  reading — never zero money (T-0051).
+
+---
+
 ## Replicate — EXCLUDED (no billing via the API token)
 
 **Credential.** API token in the environment (`REPLICATE_KEY`). It authorises

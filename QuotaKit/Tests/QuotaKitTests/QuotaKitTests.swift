@@ -430,6 +430,7 @@ struct CodexLiveConfigurationTests {
         ("grok", "Grok", "GK"),
         ("deepinfra", "DeepInfra", "DI"),
         ("kimi", "Kimi", "KM"),
+        ("runinfra", "RunInfra", "RI"),
     ]
 
     for (id, displayName, expected) in names {

@@ -237,5 +237,6 @@ public struct ProviderSnapshot: Codable, Hashable, Sendable, Identifiable {
         "grok": "GK",
         "deepinfra": "DI",
         "kimi": "KM",
+        "runinfra": "RI",
     ]
 }
