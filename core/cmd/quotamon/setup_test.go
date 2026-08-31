@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -188,6 +189,90 @@ func TestSetupPrintsAnUnsupportedFindingSoTheUserIsNotLeftWondering(t *testing.T
 	if !strings.Contains(stdout.String(), "Kimi") ||
 		!strings.Contains(stdout.String(), "credentials found, but Kimi exposes no quota API yet") {
 		t.Fatalf("setup stdout = %q, want the Kimi not-supported line", stdout.String())
+	}
+}
+
+// A malformed on-disk config means a load error rather than first-run, and
+// overwriting it with defaults would destroy whatever the user had stored. Setup
+// must therefore refuse to write and leave the file byte-identical.
+func TestSetupRefusesToOverwriteAMalformedConfigAndLeavesItByteIdentical(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("QUOTA_MONITOR_DIR", directory)
+	path := filepath.Join(directory, "config.json")
+	garbage := []byte("{ this is not json\n")
+	if err := os.WriteFile(path, garbage, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runSetup(strings.NewReader("\n\n\n\n\nn\n"), &stdout, &stderr, false, stubFindings)
+	if exit == 0 {
+		t.Fatalf("setup exit = 0, want non-zero; stderr = %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "setup: refusing to overwrite") {
+		t.Errorf("stderr = %q, want the refusing-to-overwrite line", stderr.String())
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, garbage) {
+		t.Errorf("config was rewritten; got %q, want %q", after, garbage)
+	}
+}
+
+// A config carrying an API key whose loose permissions config.Load rejects must
+// not be silently overwritten either; the key is the whole point of the file.
+func TestSetupRefusesToOverwriteALoosePermsConfigWithAStoredKey(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("QUOTA_MONITOR_DIR", directory)
+	path := filepath.Join(directory, "config.json")
+	contents := []byte("{\n  \"version\": 1,\n  \"providers\": {\n    \"deepinfra\": {\n      \"enabled\": true,\n      \"api_key\": \"secret\"\n    }\n  }\n}\n")
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runSetup(strings.NewReader("\n\n\n\n\nn\n"), &stdout, &stderr, false, stubFindings)
+	if exit == 0 {
+		t.Fatalf("setup exit = 0, want non-zero; stderr = %q", stderr.String())
+	}
+	if runtime.GOOS == "windows" {
+		return // perms enforcement is skipped on Windows, so there is nothing to refuse
+	}
+	if !strings.Contains(stderr.String(), "chmod 600") {
+		t.Errorf("stderr = %q, want the chmod 600 fix hint", stderr.String())
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, contents) {
+		t.Errorf("config was rewritten; got %q, want %q", after, contents)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("config mode = %04o, want 0644 (untouched)", info.Mode().Perm())
+	}
+}
+
+// A missing config is the genuine first-run case; setup must proceed as before
+// and end with a loadable config on disk.
+func TestSetupProceedsWhenThereIsNoConfigYet(t *testing.T) {
+	t.Setenv("QUOTA_MONITOR_DIR", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := runSetup(strings.NewReader("\n\n\n\n\nn\n"), &stdout, &stderr, false, stubFindings)
+	if exit != 0 {
+		t.Fatalf("setup exit = %d, want 0; stderr = %q", exit, stderr.String())
+	}
+	if _, err := config.Load(); err != nil {
+		t.Fatalf("expected setup to write a loadable config: %v", err)
 	}
 }
 
