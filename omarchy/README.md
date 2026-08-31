@@ -13,21 +13,31 @@ order (top bar = first row), matching the macOS glyph.
 
 ## Install
 
-`quotamon` must be on `PATH`. If it is not, set the widget's `exec` setting
-to the absolute path of the binary. Start from a checkout and copy the plugin
-directory into the Omarchy plugin tree:
+1. Add the plugin:
 
 ```bash
-git clone https://github.com/ubyjvovk/quota_monitor.git && cd quota_monitor
-mkdir -p ~/.config/omarchy/plugins/quotamon
-cp -a omarchy/. ~/.config/omarchy/plugins/quotamon/
-omarchy restart shell
-omarchy plugin enable quotamon --section center --after omarchy.clock
+omarchy plugin add https://github.com/ubyjvovk/quotamon-omarchy
 ```
 
-Omarchy's `plugin add` expects `manifest.json` at the git repo root, so
-this nested copy is the supported install path until the plugin lives in
-its own repository.
+2. Click the Quota Monitor icon to open its panel.
+3. Click **Install quotamon**.
+
+The button runs the fetch script included in the plugin. It downloads the
+binary for the current architecture, verifies it against the release's
+`SHA256SUMS`, installs it in `~/.local/bin`, and runs non-interactive setup when
+there is no config yet. It never runs automatically.
+
+To run the same installer manually:
+
+```bash
+bash ~/.config/omarchy/plugins/quotamon/fetch-quotamon.sh
+```
+
+As a by-hand fallback, download `quotamon-linux-amd64` or
+`quotamon-linux-arm64` and `SHA256SUMS` from the main repository's release,
+verify the checksum, make the binary executable, and run `quotamon setup`.
+`quotamon` must be on `PATH`; if it is not, set the widget's `exec` setting to
+the binary's absolute path.
 
 File saves under `~/.config/omarchy/plugins/` hot-reload plugin *code*,
 but a bar icon that is already mounted often keeps the old instance.

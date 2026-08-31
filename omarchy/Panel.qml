@@ -26,7 +26,15 @@ Panel {
   property bool refreshing: false
   property bool pendingFresh: false
   property bool timedOut: false
+  property bool installTimedOut: false
   property double nowMs: Date.now()
+
+  // Qt.resolvedUrl anchors the shipped script to this QML file, independent of
+  // the shell's working directory. Process needs a filesystem path, so decode
+  // the local file URL and strip only its fixed file:// scheme.
+  readonly property string installScript: decodeURIComponent(
+    String(Qt.resolvedUrl("fetch-quotamon.sh")).replace(/^file:\/\//, "")
+  )
 
   readonly property string binary: {
     var value = String(setting("exec", "quotamon")).trim()
@@ -94,6 +102,20 @@ Panel {
     watchdog.restart()
   }
 
+  function installQuotamon() {
+    if (installProc.running)
+      return
+    lastError = ""
+    installTimedOut = false
+    installProc.stdoutBuf = ""
+    installProc.stderrBuf = ""
+    // argv execution with this fixed, plugin-local path performs no shell
+    // interpolation of settings or other user-controlled values.
+    installProc.command = ["bash", root.installScript]
+    installProc.running = true
+    installWatchdog.restart()
+  }
+
   function applyOutput(raw) {
     var parsed = Model.parseSnapshot(raw)
     if (parsed) {
@@ -156,6 +178,33 @@ Panel {
     }
   }
 
+  Process {
+    id: installProc
+    property string stdoutBuf: ""
+    property string stderrBuf: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: installProc.stdoutBuf = String(text || "")
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: installProc.stderrBuf = String(text || "")
+    }
+    onExited: function(exitCode, exitStatus) {
+      installWatchdog.stop()
+      if (root.installTimedOut)
+        return
+      if (exitCode === 0) {
+        root.refreshNow(true)
+        return
+      }
+      var output = (installProc.stdoutBuf + "\n" + installProc.stderrBuf).trim()
+      root.lastError = output === ""
+        ? ("quotamon installation exited " + exitCode)
+        : output.slice(-800)
+    }
+  }
+
   // Watchdog (F12): nothing else bounds a fetch — a child so hung it never
   // exits would leave refreshing=true and disable Refresh forever. After 30 s
   // we hard-kill the child (Quickshell Process exposes no SIGTERM method, so
@@ -171,6 +220,20 @@ Panel {
       fetchProc.running = false
       root.refreshing = false
       root.lastError = "quotamon timed out after 30s"
+    }
+  }
+
+  // Release downloads may legitimately take longer than a quota refresh, but
+  // a stuck installer must not leave its button disabled forever.
+  Timer {
+    id: installWatchdog
+    interval: 120000
+    onTriggered: {
+      if (!installProc.running)
+        return
+      root.installTimedOut = true
+      installProc.running = false
+      root.lastError = "quotamon installation timed out after 120s"
     }
   }
 
@@ -314,6 +377,19 @@ Panel {
             font.pixelSize: Style.font.body
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
+          }
+
+          Button {
+            visible: root.rows.length === 0
+            width: parent.width
+            text: installProc.running ? "Installing…" : "Install quotamon"
+            iconText: "󰇚"
+            iconSpinning: installProc.running
+            bordered: true
+            enabled: !installProc.running
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.installQuotamon()
           }
 
           PanelSeparator {
