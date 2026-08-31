@@ -127,10 +127,14 @@ func httpLimits(root any) any {
 
 func whamWindow(node any) map[string]any {
 	window := make(map[string]any)
-	for _, key := range []string{"used_percent", "reset_at"} {
-		if value, ok := jsonx.Get(node, key); ok {
-			window[key] = value
-		}
+	if value, ok := jsonx.Get(node, "used_percent"); ok {
+		window["used_percent"] = value
+	}
+	// The wham endpoint spells the reset `reset_at`; the shared normaliser reads
+	// `resets_at`/`resetsAt`. Copying it under the endpoint's own spelling shipped
+	// once and silently dropped every live reset time.
+	if value, ok := jsonx.Get(node, "reset_at"); ok {
+		window["resets_at"] = value
 	}
 	if value, ok := jsonx.Get(node, "limit_window_seconds"); ok {
 		if seconds, valid := jsonx.Float(value); valid {
