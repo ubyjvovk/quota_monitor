@@ -506,3 +506,13 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   (`format()`-quoted flags, `v` prefix, raw notary key, invented repo URL).
   **Untested in CI until the owner pushes a tag** — pushing is theirs.
   App rebuilt + relaunched. Board drained (37 done).
+- 2026-08-31 — **PR #1 (Omarchy bar plugin) reviewed, fixed, merged.** /code-review
+  found 15 defects (bash -lc injection/parse breakage, NaN interval → fetch
+  storm, silent staleness, icon re-ranking, a third untested derived layer
+  diverging from the console). T-0040 (codex, feature/omarchy-pr1 cut from the
+  PR head) fixed all: argv exec, exit-code error handling + staleness banner,
+  Go-transcribed sortedWindows/tightest tie-break/creditLines/countdown/age,
+  snapshot-order icon, plus `omarchy/model_test.mjs` wired into test-all.sh
+  behind a node guard (JS derived layer now pinned like Swift's). One blocked
+  question (demo fixture predates branch — approved inline data). Merged to
+  master and pushed (user authorised push: "streamline"); PR closes as merged.
