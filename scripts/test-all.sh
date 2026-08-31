@@ -18,5 +18,10 @@ if [ -f core/go.mod ]; then
   ( cd core && GOTOOLCHAIN=local GOPROXY=off go vet ./... && GOTOOLCHAIN=local GOPROXY=off go test ./... ) || rc=1
 fi
 
+if command -v node >/dev/null 2>&1; then
+  echo "### node (omarchy model)"
+  node omarchy/model_test.mjs || rc=1
+fi
+
 echo "### exit $rc"
 exit $rc
