@@ -44,12 +44,14 @@ func Path() string {
 // a second provider list, while setup still decides which entries to enable.
 func Default() Config {
 	return Config{Version: 1, Providers: map[string]Provider{
-		"claude":    {},
-		"codex":     {},
-		"deepinfra": {},
-		"grok":      {},
-		"kimi":      {},
-		"runinfra":  {},
+		"claude":     {},
+		"codex":      {},
+		"deepseek":   {},
+		"deepinfra":  {},
+		"grok":       {},
+		"kimi":       {},
+		"openrouter": {},
+		"runinfra":   {},
 	}}
 }
 

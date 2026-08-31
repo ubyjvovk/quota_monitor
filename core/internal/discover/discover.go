@@ -61,6 +61,8 @@ func all(deps dependencies) []Finding {
 		discoverDeepInfra(deps),
 		discoverFile("kimi", "Kimi", filepath.Join(deps.home, ".kimi-code", "credentials", "kimi-code.json"), "~/.kimi-code/credentials/kimi-code.json", "run `kimi` and sign in", true),
 		discoverRunInfra(deps),
+		discoverOpenRouter(deps),
+		discoverDeepSeek(deps),
 	}
 }
 
@@ -162,6 +164,48 @@ func discoverRunInfra(deps dependencies) Finding {
 		return finding
 	}
 	if loaded.Providers["runinfra"].APIKey != "" {
+		finding.Found = true
+		finding.Detail = "config.json api_key set"
+	}
+	return finding
+}
+
+func discoverOpenRouter(deps dependencies) Finding {
+	finding := Finding{
+		ID: "openrouter", DisplayName: "OpenRouter", Supported: true, NeedsKey: true,
+		Detail: "OPENROUTER_KEY not set", Hint: "get a key at openrouter.ai/settings/keys",
+	}
+	if deps.getenv("OPENROUTER_KEY") != "" {
+		finding.Found = true
+		finding.Detail = "OPENROUTER_KEY set"
+		return finding
+	}
+	loaded, err := deps.loadConfig()
+	if err != nil && !errors.Is(err, config.ErrMissing) {
+		return finding
+	}
+	if loaded.Providers["openrouter"].APIKey != "" {
+		finding.Found = true
+		finding.Detail = "config.json api_key set"
+	}
+	return finding
+}
+
+func discoverDeepSeek(deps dependencies) Finding {
+	finding := Finding{
+		ID: "deepseek", DisplayName: "DeepSeek", Supported: true, NeedsKey: true,
+		Detail: "DEEPSEEK_KEY not set", Hint: "get a key at platform.deepseek.com/api_keys",
+	}
+	if deps.getenv("DEEPSEEK_KEY") != "" {
+		finding.Found = true
+		finding.Detail = "DEEPSEEK_KEY set"
+		return finding
+	}
+	loaded, err := deps.loadConfig()
+	if err != nil && !errors.Is(err, config.ErrMissing) {
+		return finding
+	}
+	if loaded.Providers["deepseek"].APIKey != "" {
 		finding.Found = true
 		finding.Detail = "config.json api_key set"
 	}

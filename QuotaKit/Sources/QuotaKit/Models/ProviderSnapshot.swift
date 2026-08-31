@@ -238,5 +238,7 @@ public struct ProviderSnapshot: Codable, Hashable, Sendable, Identifiable {
         "deepinfra": "DI",
         "kimi": "KM",
         "runinfra": "RI",
+        "openrouter": "OR",
+        "deepseek": "DS",
     ]
 }

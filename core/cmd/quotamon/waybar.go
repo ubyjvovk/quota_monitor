@@ -106,6 +106,10 @@ func providerShortName(provider snapshot.Provider) string {
 		return "KM"
 	case "runinfra":
 		return "RI"
+	case "openrouter":
+		return "OR"
+	case "deepseek":
+		return "DS"
 	default:
 		return provider.DisplayName
 	}

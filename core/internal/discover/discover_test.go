@@ -145,6 +145,46 @@ func TestRunInfraDiscoveryFindsTheEnvironmentWithoutLoadingSecrets(t *testing.T)
 	}
 }
 
+func TestCreditProviderDiscoveryFindsEnvironmentAndConfigKeys(t *testing.T) {
+	tests := []struct {
+		name        string
+		index       int
+		id          string
+		environment string
+		fromConfig  bool
+		wantDetail  string
+	}{
+		{name: "OpenRouter environment key", index: 6, id: "openrouter", environment: "OPENROUTER_KEY", wantDetail: "OPENROUTER_KEY set"},
+		{name: "OpenRouter config key", index: 6, id: "openrouter", environment: "OPENROUTER_KEY", fromConfig: true, wantDetail: "config.json api_key set"},
+		{name: "DeepSeek environment key", index: 7, id: "deepseek", environment: "DEEPSEEK_KEY", wantDetail: "DEEPSEEK_KEY set"},
+		{name: "DeepSeek config key", index: 7, id: "deepseek", environment: "DEEPSEEK_KEY", fromConfig: true, wantDetail: "config.json api_key set"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			deps := testDependencies(t, home)
+			if test.fromConfig {
+				deps.loadConfig = func() (config.Config, error) {
+					return config.Config{Providers: map[string]config.Provider{test.id: {APIKey: "secret"}}}, nil
+				}
+			} else {
+				deps.getenv = func(name string) string {
+					if name == test.environment {
+						return "secret"
+					}
+					return ""
+				}
+			}
+
+			finding := all(deps)[test.index]
+			if !finding.Found || !finding.Supported || !finding.NeedsKey || finding.Detail != test.wantDetail {
+				t.Fatalf("finding = %#v, want found supported key probe with detail %q", finding, test.wantDetail)
+			}
+		})
+	}
+}
+
 func testDependencies(t *testing.T, home string) dependencies {
 	t.Helper()
 	return dependencies{

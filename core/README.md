@@ -114,7 +114,9 @@ flag:
     "grok": { "enabled": true },
     "deepinfra": { "enabled": true, "api_key": "your-key" },
     "kimi": { "enabled": false },
-    "runinfra": { "enabled": true, "api_key": "your-key" }
+    "runinfra": { "enabled": true, "api_key": "your-key" },
+    "openrouter": { "enabled": true, "api_key": "your-key" },
+    "deepseek": { "enabled": true, "api_key": "your-key" }
   }
 }
 ```
@@ -124,6 +126,9 @@ flag:
 empty the provider falls back to the `DEEPINFRA_KEY` environment variable.
 `runinfra.api_key` supplies the RunInfra key; when empty it falls back to the
 `RUNINFRA_TOKEN` environment variable.
+`openrouter.api_key` supplies the OpenRouter key; when empty it falls back to
+the `OPENROUTER_KEY` environment variable. `deepseek.api_key` supplies the
+DeepSeek key; when empty it falls back to `DEEPSEEK_KEY`.
 
 API keys may live in the file, but the config is always written with `0600`
 permissions, and a config that contains an `api_key` while carrying group or
@@ -199,8 +204,10 @@ pasted keys and manual choices survive.
 enables every found supported provider (even one whose config entry was
 explicitly off before it was supported), keeps whatever is already enabled on
 disk, and takes keys from the environment only — DeepInfra's key is the
-`DEEPINFRA_KEY` variable — so it is safe to run non-interactively. To leave a
-found provider off, run without `--yes` or edit the config file.
+`DEEPINFRA_KEY` variable; RunInfra, OpenRouter, and DeepSeek likewise use
+`RUNINFRA_TOKEN`, `OPENROUTER_KEY`, and `DEEPSEEK_KEY` — so it is safe to run
+non-interactively. To leave a found provider off, run without `--yes` or edit
+the config file.
 `quotamon providers` prints
 the same table plus an `on`/`off` column read from the config, and exits `3`
 with the setup hint when the config file does not exist yet.
@@ -233,6 +240,10 @@ QuotaMon honours a small set of environment variables, all optional:
   `deepinfra.api_key` is empty.
 - `RUNINFRA_TOKEN` — RunInfra API key, used when the config file's
   `runinfra.api_key` is empty.
+- `OPENROUTER_KEY` — OpenRouter API key, used when the config file's
+  `openrouter.api_key` is empty.
+- `DEEPSEEK_KEY` — DeepSeek API key, used when the config file's
+  `deepseek.api_key` is empty.
 
 ## Caching and refresh
 
@@ -269,7 +280,8 @@ observation age, and non-OK status.
 
 ## Providers
 
-Supported providers are Claude, ChatGPT / Codex, Grok, DeepInfra, and Kimi.
+Supported providers are Claude, ChatGPT / Codex, Grok, DeepInfra, Kimi,
+RunInfra, OpenRouter, and DeepSeek.
 
 ### Claude
 
@@ -362,6 +374,24 @@ Usage comes from `GET https://api.kimi.com/coding/v1/usages` — note the
 additional window whose label and kind are inferred from its duration. A zero
 or unparsable limit is skipped rather than fabricated, and the plan comes from
 `membership.level` with the `LEVEL_` prefix stripped.
+
+### OpenRouter
+
+The live-only source reads an API key from `config.json` or `OPENROUTER_KEY`
+and sends one `GET https://openrouter.ai/api/v1/credits` request. It reports
+remaining prepaid credit as `max(0, total_credits - total_usage)` and labels
+the returned usage as `all time`, because the documented endpoint's total is
+lifetime usage rather than monthly spend. Missing or non-numeric totals are a
+malformed response, never `$0.00`.
+
+### DeepSeek
+
+The live-only source reads an API key from `config.json` or `DEEPSEEK_KEY` and
+sends one `GET https://api.deepseek.com/user/balance` request. DeepSeek sends
+money as strings. QuotaMon prefers the USD entry in `balance_infos`, formats
+it as `$X.XX`, and otherwise uses the first entry with a currency suffix such
+as `110.00 CNY`. The endpoint exposes balance and availability but no spend or
+quota windows.
 
 ## Build and test
 

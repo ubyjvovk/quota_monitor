@@ -1,13 +1,15 @@
 # Provider reference — where quota actually comes from
 
-Everything below was established by hand against real accounts on 2026-08-29,
-not read from docs or guessed. It is **language-neutral on purpose**: the code
-may be rewritten, but this knowledge is the expensive part and should outlive
-any implementation.
+Except where a section explicitly says its shape is documentation-derived,
+everything below was established by hand against real accounts, beginning on
+2026-08-29. It is **language-neutral on purpose**: the code may be rewritten,
+but this knowledge is the expensive part and should outlive any implementation.
 
 Every response shape named here has a committed fixture under
-`QuotaKit/Tests/QuotaKitTests/Fixtures/`. Those files are plain JSON captures
-and remain valid test data for a port in any language.
+`QuotaKit/Tests/QuotaKitTests/Fixtures/`. Most are plain JSON captures; the
+OpenRouter and DeepSeek fixtures are documentation-derived until the owner
+supplies keys for live verification. All remain shared conformance data for a
+port in any language.
 
 ---
 
@@ -415,6 +417,65 @@ integers. Fixture: `runinfra-credits.json`.
   a transport failure.
 - Missing/malformed `available_cents` or `period.spent_cents` is a malformed
   reading — never zero money (T-0051).
+
+---
+
+## OpenRouter — DOCUMENTED credits + lifetime usage (added 2026-08-31)
+
+**Credential.** Plain API key. Read it from the config file's
+`openrouter.api_key`, falling back to **`OPENROUTER_KEY`**. A 401/403 means the
+key is bad; there is no token refresh.
+
+**Endpoint.** Live-only (no local source):
+
+```
+GET https://openrouter.ai/api/v1/credits
+Authorization: Bearer <key>
+→ {"data": {"total_credits": 25.0, "total_usage": 14.37}}
+```
+
+The endpoint and shape are vendor-documented. PM confirmed the route is live
+with an unauthenticated 401, but no account key was available for a 200 capture;
+`openrouter-credits.json` is therefore documentation-derived pending owner
+verification. Money is numeric USD. Balance is
+`max(0, total_credits - total_usage)` and `HasCredits` is true only when that
+remaining amount is positive.
+
+**`total_usage` is lifetime usage.** Display it as `$X.XX all time`; never call
+it monthly spend. Missing or non-numeric `data.total_credits` or
+`data.total_usage` makes the response malformed rather than fabricating zero.
+HTTP 429 is retryable rate limiting; any other non-200 is a transport failure.
+
+---
+
+## DeepSeek — DOCUMENTED account balance (added 2026-08-31)
+
+**Credential.** Plain API key. Read it from the config file's
+`deepseek.api_key`, falling back to **`DEEPSEEK_KEY`**. A 401/403 means the key
+is bad; there is no token refresh.
+
+**Endpoint.** Live-only (no local source):
+
+```
+GET https://api.deepseek.com/user/balance
+Authorization: Bearer <key>
+→ {"is_available": true, "balance_infos": [{"currency": "CNY",
+   "total_balance": "110.00", "granted_balance": "10.00",
+   "topped_up_balance": "100.00"}]}
+```
+
+The endpoint and shape are vendor-documented. PM confirmed the route is live
+with an unauthenticated 401, but no account key was available for a 200 capture;
+`deepseek-balance.json` is therefore documentation-derived pending owner
+verification. **Money values are decimal strings**, not JSON numbers.
+
+Prefer the `balance_infos` entry whose currency is `USD`; otherwise use the
+first entry. Format USD as `$X.XX` and other currencies with the code after the
+amount (`110.00 CNY`). Empty/missing `balance_infos` or an unparsable selected
+`total_balance` is malformed. `is_available:false` with zero balance is a
+normal state with `HasCredits:false`. This endpoint reports no spend, plan, or
+quota windows. HTTP 429 is retryable rate limiting; other non-200 responses are
+transport failures.
 
 ---
 

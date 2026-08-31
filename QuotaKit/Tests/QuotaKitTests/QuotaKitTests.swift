@@ -431,6 +431,8 @@ struct CodexLiveConfigurationTests {
         ("deepinfra", "DeepInfra", "DI"),
         ("kimi", "Kimi", "KM"),
         ("runinfra", "RunInfra", "RI"),
+        ("openrouter", "OpenRouter", "OR"),
+        ("deepseek", "DeepSeek", "DS"),
     ]
 
     for (id, displayName, expected) in names {

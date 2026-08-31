@@ -9,8 +9,10 @@ import (
 	"quotamon/internal/providers/claude"
 	"quotamon/internal/providers/codex"
 	"quotamon/internal/providers/deepinfra"
+	"quotamon/internal/providers/deepseek"
 	"quotamon/internal/providers/grok"
 	"quotamon/internal/providers/kimi"
+	"quotamon/internal/providers/openrouter"
 	"quotamon/internal/providers/runinfra"
 	"quotamon/internal/registry"
 )
@@ -19,7 +21,7 @@ import (
 // leaving each provider's provider-specific settings at their defaults.
 func enabledConfig() config.Config {
 	providers := map[string]config.Provider{}
-	for _, id := range []string{claude.ProviderID, codex.ProviderID, grok.ProviderID, deepinfra.ProviderID, kimi.ProviderID, runinfra.ProviderID} {
+	for _, id := range []string{claude.ProviderID, codex.ProviderID, grok.ProviderID, deepinfra.ProviderID, kimi.ProviderID, runinfra.ProviderID, openrouter.ProviderID, deepseek.ProviderID} {
 		providers[id] = config.Provider{Enabled: true}
 	}
 	return config.Config{Version: 1, Providers: providers}
@@ -36,7 +38,7 @@ func TestAllReturnsOnlyEnabledProvidersInStableOrder(t *testing.T) {
 		Env:    func(string) string { return "" },
 	})
 
-	if len(providers) != 6 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID || providers[3].ID != deepinfra.ProviderID || providers[4].ID != kimi.ProviderID || providers[5].ID != runinfra.ProviderID {
+	if len(providers) != 8 || providers[0].ID != claude.ProviderID || providers[1].ID != codex.ProviderID || providers[2].ID != grok.ProviderID || providers[3].ID != deepinfra.ProviderID || providers[4].ID != kimi.ProviderID || providers[5].ID != runinfra.ProviderID || providers[6].ID != openrouter.ProviderID || providers[7].ID != deepseek.ProviderID {
 		t.Fatalf("All() order = %#v", providers)
 	}
 	claudeLocal, ok := providers[0].Local.(claude.LocalSource)
@@ -74,16 +76,28 @@ func TestAllReturnsOnlyEnabledProvidersInStableOrder(t *testing.T) {
 	if _, ok := providers[5].Live.(runinfra.LiveSource); !ok {
 		t.Fatalf("RunInfra live = %T, want LiveSource", providers[5].Live)
 	}
-	wantWindows := []time.Duration{5 * time.Hour, 5 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 5 * time.Hour, 30 * 24 * time.Hour}
+	if providers[6].Local != nil {
+		t.Fatalf("OpenRouter local = %T, want nil", providers[6].Local)
+	}
+	if _, ok := providers[6].Live.(openrouter.LiveSource); !ok {
+		t.Fatalf("OpenRouter live = %T, want LiveSource", providers[6].Live)
+	}
+	if providers[7].Local != nil {
+		t.Fatalf("DeepSeek local = %T, want nil", providers[7].Local)
+	}
+	if _, ok := providers[7].Live.(deepseek.LiveSource); !ok {
+		t.Fatalf("DeepSeek live = %T, want LiveSource", providers[7].Live)
+	}
+	wantWindows := []time.Duration{5 * time.Hour, 5 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 5 * time.Hour, 30 * 24 * time.Hour, 30 * 24 * time.Hour, 30 * 24 * time.Hour}
 	for index, provider := range providers {
 		if provider.Cache == nil || provider.ShortestWindow != wantWindows[index] {
 			t.Errorf("provider %s cache/window = %v/%s, want configured/%s", provider.ID, provider.Cache, provider.ShortestWindow, wantWindows[index])
 		}
 	}
-	if providers[0].TokenStale != nil || providers[1].TokenStale != nil || providers[2].TokenStale == nil || providers[3].TokenStale != nil || providers[4].TokenStale == nil || providers[5].TokenStale != nil {
+	if providers[0].TokenStale != nil || providers[1].TokenStale != nil || providers[2].TokenStale == nil || providers[3].TokenStale != nil || providers[4].TokenStale == nil || providers[5].TokenStale != nil || providers[6].TokenStale != nil || providers[7].TokenStale != nil {
 		t.Fatalf("token-stale policies are not wired only for Grok and Kimi")
 	}
-	if providers[0].Refresh != nil || providers[1].Refresh != nil || providers[2].Refresh != nil || providers[3].Refresh != nil || providers[4].Refresh == nil || providers[5].Refresh != nil {
+	if providers[0].Refresh != nil || providers[1].Refresh != nil || providers[2].Refresh != nil || providers[3].Refresh != nil || providers[4].Refresh == nil || providers[5].Refresh != nil || providers[6].Refresh != nil || providers[7].Refresh != nil {
 		t.Fatalf("refresh policy is not wired only for Kimi")
 	}
 }
@@ -93,8 +107,13 @@ func TestAllAppliesLivePolicyAcrossEnabledProviders(t *testing.T) {
 		Config:      enabledConfig(),
 		LiveEnabled: func(id string) bool { return id != claude.ProviderID },
 	})
-	if providers[0].LiveEnabled || !providers[1].LiveEnabled || !providers[2].LiveEnabled || !providers[3].LiveEnabled || !providers[4].LiveEnabled || !providers[5].LiveEnabled {
-		t.Fatalf("All() live policy (%v %v %v %v %v %v), want only Claude disabled", providers[0].LiveEnabled, providers[1].LiveEnabled, providers[2].LiveEnabled, providers[3].LiveEnabled, providers[4].LiveEnabled, providers[5].LiveEnabled)
+	if providers[0].LiveEnabled {
+		t.Fatal("All() live policy left Claude enabled")
+	}
+	for _, provider := range providers[1:] {
+		if !provider.LiveEnabled {
+			t.Errorf("All() live policy disabled %s, want only Claude disabled", provider.ID)
+		}
 	}
 }
 
@@ -108,7 +127,7 @@ func TestAllOmitsDisabledProviders(t *testing.T) {
 	for _, provider := range providers {
 		ids = append(ids, provider.ID)
 	}
-	if len(providers) != 4 || ids[0] != codex.ProviderID || ids[1] != grok.ProviderID || ids[2] != kimi.ProviderID || ids[3] != runinfra.ProviderID {
+	if len(providers) != 6 || ids[0] != codex.ProviderID || ids[1] != grok.ProviderID || ids[2] != kimi.ProviderID || ids[3] != runinfra.ProviderID || ids[4] != openrouter.ProviderID || ids[5] != deepseek.ProviderID {
 		t.Fatalf("All() with claude and deepinfra disabled = %#v", ids)
 	}
 }
@@ -238,6 +257,80 @@ func TestAllFallsBackToTheEnvironmentWhenRunInfraConfigHasNoKey(t *testing.T) {
 	}
 	if key := live.Key(); key != "from-env" {
 		t.Fatalf("RunInfra Key() = %q, want the environment fallback", key)
+	}
+}
+
+func TestAllUsesOpenRouterConfigKeyOverTheEnvironment(t *testing.T) {
+	cfg := enabledConfig()
+	setting := cfg.Providers[openrouter.ProviderID]
+	setting.APIKey = "from-config"
+	cfg.Providers[openrouter.ProviderID] = setting
+
+	providers := registry.All(registry.Options{
+		Config: cfg,
+		Env: func(name string) string {
+			if name == "OPENROUTER_KEY" {
+				return "from-env"
+			}
+			return ""
+		},
+	})
+	live, ok := providers[6].Live.(openrouter.LiveSource)
+	if !ok || live.Key() != "from-config" {
+		t.Fatalf("OpenRouter live = %#v, want config-backed LiveSource", providers[6].Live)
+	}
+}
+
+func TestAllFallsBackToTheEnvironmentWhenOpenRouterConfigHasNoKey(t *testing.T) {
+	providers := registry.All(registry.Options{
+		Config: enabledConfig(),
+		Env: func(name string) string {
+			if name == "OPENROUTER_KEY" {
+				return "from-env"
+			}
+			return ""
+		},
+	})
+	live, ok := providers[6].Live.(openrouter.LiveSource)
+	if !ok || live.Key() != "from-env" {
+		t.Fatalf("OpenRouter live = %#v, want environment-backed LiveSource", providers[6].Live)
+	}
+}
+
+func TestAllUsesDeepSeekConfigKeyOverTheEnvironment(t *testing.T) {
+	cfg := enabledConfig()
+	setting := cfg.Providers[deepseek.ProviderID]
+	setting.APIKey = "from-config"
+	cfg.Providers[deepseek.ProviderID] = setting
+
+	providers := registry.All(registry.Options{
+		Config: cfg,
+		Env: func(name string) string {
+			if name == "DEEPSEEK_KEY" {
+				return "from-env"
+			}
+			return ""
+		},
+	})
+	live, ok := providers[7].Live.(deepseek.LiveSource)
+	if !ok || live.Key() != "from-config" {
+		t.Fatalf("DeepSeek live = %#v, want config-backed LiveSource", providers[7].Live)
+	}
+}
+
+func TestAllFallsBackToTheEnvironmentWhenDeepSeekConfigHasNoKey(t *testing.T) {
+	providers := registry.All(registry.Options{
+		Config: enabledConfig(),
+		Env: func(name string) string {
+			if name == "DEEPSEEK_KEY" {
+				return "from-env"
+			}
+			return ""
+		},
+	})
+	live, ok := providers[7].Live.(deepseek.LiveSource)
+	if !ok || live.Key() != "from-env" {
+		t.Fatalf("DeepSeek live = %#v, want environment-backed LiveSource", providers[7].Live)
 	}
 }
 
