@@ -59,7 +59,7 @@ scale = 2
 [worker.grok]
 engine = "grok"
 max_complexity = 3
-scale = 2
+scale = 0 #out of quota 
 
 [worker.luna]
 engine = "codex"
