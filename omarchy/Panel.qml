@@ -273,7 +273,8 @@ Panel {
     owner: root.barIdentity
     bar: root.bar
     open: root.opened
-    centerOnBar: true
+    // Anchored popouts follow their icon's bar section; centring is the fallback for a missing anchor only.
+    centerOnBar: root.anchorItem === null
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(380))
     contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(640))
