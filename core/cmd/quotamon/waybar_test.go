@@ -62,6 +62,57 @@ func TestRenderWaybarUsesTheKimiShortName(t *testing.T) {
 	}
 }
 
+func TestProviderTooltipOrdersWindowsLikeTheTable(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	provider := waybarProvider("claude", "Claude", 0, now)
+	provider.Windows = []snapshot.Window{
+		{ID: "weekly", Label: "weekly", Kind: snapshot.KindWeekly, UsedPercent: 40, ResetsAt: &snapshot.Time{Time: now.Add(time.Hour)}},
+		{ID: "session", Label: "session", Kind: snapshot.KindSession, UsedPercent: 90, ResetsAt: &snapshot.Time{Time: now.Add(time.Hour)}},
+	}
+
+	tooltip := providerTooltip(provider, now)
+	if strings.Index(tooltip, "  session  90%") > strings.Index(tooltip, "  weekly  40%") {
+		t.Fatalf("providerTooltip() = %q, want the session window first", tooltip)
+	}
+}
+
+func TestProviderTooltipRendersCachedOrigin(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	provider := waybarProvider("claude", "Claude", 43, now)
+	provider.Origin = snapshot.OriginLocal
+
+	tooltip := providerTooltip(provider, now)
+	if !strings.Contains(tooltip, "Claude · max · cached · 2m ago") {
+		t.Fatalf("providerTooltip() = %q, want cached origin", tooltip)
+	}
+}
+
+func TestProviderTooltipRendersCreditsAlongsideWindows(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	provider := waybarProvider("deepinfra", "DeepInfra", 43, now)
+	balance := "$10.03"
+	provider.Credits = &snapshot.Credits{Balance: &balance, Enabled: true}
+
+	tooltip := providerTooltip(provider, now)
+	if !strings.Contains(tooltip, "  credits   $10.03 remaining") {
+		t.Fatalf("providerTooltip() = %q, want credits alongside the window", tooltip)
+	}
+}
+
+func TestRenderWaybarClampsPercentageWithoutChangingTextOrTooltip(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	provider := waybarProvider("claude", "Claude", 104, now)
+
+	got := renderWaybar(snapshot.Snapshot{Providers: []snapshot.Provider{provider}}, now)
+
+	if got.Percentage != 100 {
+		t.Fatalf("renderWaybar().Percentage = %d, want 100", got.Percentage)
+	}
+	if !strings.Contains(got.Text, "CL 104%") || !strings.Contains(got.Tooltip, "  Fable wk  104%") {
+		t.Fatalf("renderWaybar() = %#v, want unclamped text and tooltip", got)
+	}
+}
+
 func waybarProvider(id, displayName string, percent float64, now time.Time) snapshot.Provider {
 	plan := "max"
 	minutes := 7 * 24 * 60

@@ -49,7 +49,7 @@ func renderWaybar(input snapshot.Snapshot, now time.Time) waybarPayload {
 	}
 	if hasHeadline {
 		payload.Class = severity(headlinePercent)
-		payload.Percentage = int(math.Round(headlinePercent))
+		payload.Percentage = int(math.Round(math.Min(100, math.Max(0, headlinePercent))))
 	}
 	return payload
 }
@@ -60,9 +60,9 @@ func providerTooltip(provider snapshot.Provider, now time.Time) string {
 		plan = *provider.Plan
 	}
 	lines := []string{
-		provider.DisplayName + " · " + plan + " · " + string(provider.Origin) + " · " + format.Age(now.Sub(provider.ObservedAt.Time)),
+		provider.DisplayName + " · " + plan + " · " + tableOrigin(provider.Origin) + " · " + format.Age(now.Sub(provider.ObservedAt.Time)),
 	}
-	for _, window := range provider.Windows {
+	for _, window := range provider.SortedWindows(now) {
 		used := "—"
 		if current, ok := window.CurrentUsedPercent(now); ok {
 			used = format.Percent(current)
@@ -77,7 +77,7 @@ func providerTooltip(provider snapshot.Provider, now time.Time) string {
 		}
 		lines = append(lines, "  "+window.Label+"  "+used+"  "+reset)
 	}
-	if len(provider.Windows) == 0 && provider.Credits != nil {
+	if provider.Credits != nil {
 		// A windowless credits provider renders its credit rows the same way the
 		// table does, so the waybar tooltip and the table never disagree.
 		lines = append(lines, creditLines(*provider.Credits)...)
