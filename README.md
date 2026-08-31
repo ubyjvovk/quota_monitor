@@ -265,11 +265,13 @@ Two notes:
 
 ## Contributing / for agents
 
-- **Releases:** `git tag vX.Y.Z && git push origin vX.Y.Z` runs
-  `.github/workflows/release.yml`, which builds the universal DMG plus the
-  standalone `quotamon` binaries and publishes them to the GitHub Release.
-  Signing and notarization switch on automatically when the secrets listed in
-  the workflow are present.
+- **Releases:** cut a release with `scripts/release.sh`. The version is
+  `{major}.{commit count}` (e.g. `0.264`) — the major is bumped by hand in the
+  script, the minor is the commit count. The script tags (`v*`) and pushes
+  master + the tag, still triggering `.github/workflows/release.yml`, which
+  builds the universal DMG plus the standalone `quotamon` binaries and
+  publishes them to the GitHub Release. Signing and notarization switch on
+  automatically when the secrets listed in the workflow are present.
 - [`AGENTS.md`](AGENTS.md) — how to work here (layout, conventions, commands, gotchas).
 - [`PROVIDERS.md`](PROVIDERS.md) — the provider contract: endpoints, credentials, dead ends.
 - [`GO-PORT.md`](GO-PORT.md) — the design record and status of the Go core port.
