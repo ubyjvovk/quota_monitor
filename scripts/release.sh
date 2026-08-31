@@ -19,8 +19,8 @@ TAG="v${MAJOR}.${COUNTS}"
 # agents can preview it, but it still refuses a dirty tree (a real dry run
 # should reflect only a currently releasable state).
 if [ "${1:-}" = "--dry-run" ]; then
-  if [ -n "$(git status --porcelain)" ]; then
-    echo "error: working tree is dirty; commit or stash before cutting a release" >&2
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "error: uncommitted tracked changes present; commit or stash before cutting a release" >&2
     exit 1
   fi
   echo "$TAG"
@@ -31,8 +31,8 @@ fi
 [ "$(git rev-parse --abbrev-ref HEAD)" = "master" ] || {
   echo "error: releases are cut from master (on $(git rev-parse --abbrev-ref HEAD))" >&2
   exit 1; }
-[ -z "$(git status --porcelain)" ] || {
-  echo "error: working tree is dirty; commit or stash before cutting a release" >&2
+[ -z "$(git status --porcelain --untracked-files=no)" ] || {
+  echo "error: uncommitted tracked changes present; commit or stash before cutting a release" >&2
   exit 1; }
 git rev-parse "$TAG" >/dev/null 2>&1 && {
   echo "error: tag $TAG already exists" >&2
