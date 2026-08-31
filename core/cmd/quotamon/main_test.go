@@ -62,7 +62,7 @@ func (s slowSource) Fetch(ctx context.Context) (snapshot.Provider, error) {
 	}
 }
 
-func TestSnapshotCommandPrintsFetchedProvidersAndUsesWindowExitStatus(t *testing.T) {
+func TestSnapshotCommandPrintsFetchedProvidersAndUsesUsableReadingExitStatus(t *testing.T) {
 	setupValidConfig(t)
 	now := time.Date(2026, 8, 29, 18, 59, 59, 741_925_000, time.UTC)
 	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
@@ -97,7 +97,7 @@ func TestSnapshotCommandPrintsFetchedProvidersAndUsesWindowExitStatus(t *testing
 	}
 }
 
-func TestDefaultCommandPrintsTableAndUsesWindowExitStatus(t *testing.T) {
+func TestDefaultCommandPrintsTableAndUsesUsableReadingExitStatus(t *testing.T) {
 	setupValidConfig(t)
 	now := time.Date(2026, 8, 29, 18, 59, 59, 0, time.UTC)
 	provider := commandProvider("claude", "Claude", 43, now.Add(time.Hour))
@@ -117,6 +117,47 @@ func TestDefaultCommandPrintsTableAndUsesWindowExitStatus(t *testing.T) {
 	exit = runWithFactory(nil, strings.NewReader(""), &stdout, &stderr, func() time.Time { return now }, fixedFactory(nil))
 	if exit != 1 {
 		t.Fatalf("empty table exit = %d, want 1", exit)
+	}
+}
+
+func TestUsableReadingExitStatusFollowsCurrentWindowsAndCredits(t *testing.T) {
+	now := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+	rolledOver := commandProvider("claude", "Claude", 43, now.Add(-time.Hour))
+	rolledOver.Windows = append(rolledOver.Windows, snapshot.Window{
+		ID: "week", Label: "Week", Kind: snapshot.KindWeekly, UsedPercent: 61,
+		ResetsAt: &snapshot.Time{Time: now.Add(-time.Second)},
+	})
+	tests := []struct {
+		name     string
+		provider snapshot.Provider
+		want     int
+	}{
+		{
+			name:     "credits only succeeds",
+			provider: snapshot.Provider{Credits: &snapshot.Credits{}},
+			want:     0,
+		},
+		{
+			name:     "all rolled over without credits fails",
+			provider: rolledOver,
+			want:     1,
+		},
+		{
+			name:     "one current window succeeds",
+			provider: commandProvider("claude", "Claude", 43, now.Add(time.Hour)),
+			want:     0,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := snapshot.Snapshot{
+				Providers:   []snapshot.Provider{test.provider},
+				GeneratedAt: snapshot.Time{Time: now},
+			}
+			if got := usableReadingExitStatus(result); got != test.want {
+				t.Fatalf("usableReadingExitStatus() = %d, want %d", got, test.want)
+			}
+		})
 	}
 }
 
