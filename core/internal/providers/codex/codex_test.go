@@ -19,6 +19,11 @@ import (
 	"quotamon/internal/source"
 )
 
+// appServerReplyBudget is the wall-clock the fake-CLI exchange gets. It only has
+// to outlast process spawn on a loaded host; the assertion is that runAppServer
+// returns well inside it, never that it is fast.
+const appServerReplyBudget = 30 * time.Second
+
 func TestParseAppServerOutputSelectsTheExplicitRateLimitsReply(t *testing.T) {
 	fixture := compactFixture(t, "codex-app-server-ratelimits.json")
 	stdout := bytes.Join([][]byte{
@@ -85,19 +90,38 @@ func TestRunAppServerKeepsStdinOpenUntilRateLimitsReply(t *testing.T) {
 	}
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), appServerReplyBudget)
 	defer cancel()
+	// The fake CLI never closes its stdin, so runAppServer may only return because
+	// it saw the id:2 reply — returning at the deadline is the failure this test
+	// guards. The budget is deliberately generous: at 3s the test failed purely
+	// from host load (four workers building at once), not from a stuck runner.
+	type appServerResult struct {
+		output []byte
+		err    error
+	}
+	done := make(chan appServerResult, 1)
 	started := time.Now()
-	output, err := runAppServer(ctx, []byte(appServerRequests))
+	go func() {
+		output, err := runAppServer(ctx, []byte(appServerRequests))
+		done <- appServerResult{output: output, err: err}
+	}()
+
+	var result appServerResult
+	select {
+	case result = <-done:
+	case <-time.After(appServerReplyBudget + 5*time.Second):
+		t.Fatalf("runAppServer never returned, even %s past its %s deadline", 5*time.Second, appServerReplyBudget)
+	}
 	elapsed := time.Since(started)
-	if err != nil {
-		t.Fatal(err)
+	if result.err != nil {
+		t.Fatal(result.err)
 	}
-	if elapsed >= 3*time.Second {
-		t.Fatalf("runAppServer returned after %s, want less than 3s", elapsed)
+	if elapsed >= appServerReplyBudget {
+		t.Fatalf("runAppServer returned after %s, want a return on the id:2 reply before the %s deadline", elapsed, appServerReplyBudget)
 	}
-	if !bytes.Contains(output, fixture) {
-		t.Fatalf("output = %q, want id:2 fixture", output)
+	if !bytes.Contains(result.output, fixture) {
+		t.Fatalf("output = %q, want id:2 fixture", result.output)
 	}
 }
 
@@ -160,6 +184,69 @@ func TestLocalSourceReadsTheLastRolloutRecordAndLabelsRollover(t *testing.T) {
 			}
 			if secondary.ID != "secondary" || secondary.UsedPercent != 42.5 || secondary.Label != "5h" || secondary.WindowMinutes == nil || *secondary.WindowMinutes != 300 {
 				t.Fatalf("secondary = %#v", secondary)
+			}
+		})
+	}
+}
+
+func TestLocalSourceSkipsAnUnreadableRolloutAndStillReadsTheNextOne(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads mode 0000 files")
+	}
+	home := rolloutHome(t)
+	unreadable := filepath.Join(home, "sessions", "2026", "07", "31", "rollout-unreadable.jsonl")
+	if err := os.WriteFile(unreadable, []byte(`{"payload":{"rate_limits":{}}}`+"\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	// The source walks rollouts newest first, so pin both mtimes: the broken file
+	// has to be the one it opens first, or the test proves nothing.
+	touch(t, unreadable, time.Now())
+	touch(t, filepath.Join(home, "sessions", "2026", "07", "31", "rollout-fixture.jsonl"), time.Now().Add(-time.Hour))
+
+	now := time.Date(2026, 7, 31, 19, 32, 0, 0, time.UTC)
+	provider, err := (LocalSource{Home: home, Now: func() time.Time { return now }}).Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch() = %v, want the readable rollout's reading", err)
+	}
+	if provider.Status.State != "ok" || len(provider.Windows) != 2 {
+		t.Fatalf("provider = %#v", provider)
+	}
+	if got := provider.ObservedAt.UTC().Truncate(time.Second); !got.Equal(time.Date(2026, 7, 31, 19, 31, 13, 0, time.UTC)) {
+		t.Fatalf("observedAt = %s, want the fixture rollout's record", provider.ObservedAt.Time)
+	}
+}
+
+func TestLocalSourceScansBackPastATailLineThatOnlyQuotesRateLimits(t *testing.T) {
+	tests := []struct {
+		name      string
+		tailBytes int
+	}{
+		{name: "one whole-file pass rejects the decoy and keeps going", tailBytes: 0},
+		{name: "a tail holding only the decoy escalates to the whole file", tailBytes: 200},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			home := rolloutHome(t)
+			path := filepath.Join(home, "sessions", "2026", "07", "31", "rollout-fixture.jsonl")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoy := `{"timestamp":"2026-07-31T19:40:00.000Z","type":"event_msg","payload":{"type":"agent_message","message":"which rate_limits record did you read?"}}` + "\n"
+			if err := os.WriteFile(path, append(data, decoy...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			now := time.Date(2026, 7, 31, 19, 45, 0, 0, time.UTC)
+			provider, err := (LocalSource{Home: home, TailBytes: test.tailBytes, Now: func() time.Time { return now }}).Fetch(context.Background())
+			if err != nil {
+				t.Fatalf("Fetch() = %v, want the record before the decoy line", err)
+			}
+			if len(provider.Windows) != 2 || provider.Windows[0].UsedPercent != 18 {
+				t.Fatalf("windows = %#v", provider.Windows)
+			}
+			if got := provider.ObservedAt.UTC().Truncate(time.Second); !got.Equal(time.Date(2026, 7, 31, 19, 31, 13, 0, time.UTC)) {
+				t.Fatalf("observedAt = %s, want the real record's timestamp", provider.ObservedAt.Time)
 			}
 		})
 	}
@@ -234,6 +321,9 @@ func TestHTTPSourceMapsWhamUsageAndIdentifiesHonestly(t *testing.T) {
 	if window.UsedPercent != 26 || window.WindowMinutes == nil || *window.WindowMinutes != 300 || window.Label != "5h" {
 		t.Fatalf("primary window = %#v", window)
 	}
+	if window.ResetsAt == nil || !window.ResetsAt.Equal(time.Unix(1788038896, 0)) {
+		t.Fatalf("primary reset = %#v, want the endpoint's reset_at", window.ResetsAt)
+	}
 }
 
 func compactFixture(t *testing.T, name string) []byte {
@@ -290,4 +380,11 @@ func rolloutHome(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return home
+}
+
+func touch(t *testing.T, path string, modified time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, modified, modified); err != nil {
+		t.Fatal(err)
+	}
 }

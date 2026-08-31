@@ -18,6 +18,10 @@ import (
 const (
 	defaultMaxFiles  = 16
 	defaultTailBytes = 512 * 1024
+	// defaultMaxCandidates bounds how many "rate_limits" lines one rollout may
+	// offer per pass, so a transcript that discusses rate limits at length cannot
+	// turn a scan into a full-file JSON parse marathon.
+	defaultMaxCandidates = 32
 )
 
 // LocalSource reads the newest cached rate limits from Codex rollout files.
@@ -72,33 +76,32 @@ func (s LocalSource) Fetch(context.Context) (snapshot.Provider, error) {
 	if err != nil {
 		return snapshot.Provider{}, source.Errorf(source.Transport, "List Codex sessions at %s: %v", sessionsRoot, err)
 	}
+	var firstReadError error
+	var firstReadPath string
 	for _, rollout := range rollouts {
-		line, found, err := LastLine(rollout.path, "rate_limits", tailBytes)
+		var provider snapshot.Provider
+		found, err := eachCandidate(rollout.path, "rate_limits", tailBytes, defaultMaxCandidates, func(line string) bool {
+			candidate, ok := rolloutRecord(line, rollout.modified)
+			if !ok {
+				return false
+			}
+			provider = candidate
+			return true
+		})
 		if err != nil {
-			return snapshot.Provider{}, source.Errorf(source.Transport, "Read Codex session %s: %v", rollout.path, err)
+			// One unreadable rollout — a permission-denied session directory, a file
+			// rotated away mid-scan — used to fail the whole source. Skip it and keep
+			// the reason, which is only reported if no rollout at all yields a reading.
+			if firstReadError == nil {
+				firstReadError, firstReadPath = err, rollout.path
+			}
+			continue
 		}
 		if !found {
 			continue
 		}
-		root, err := jsonx.Parse([]byte(line))
-		if err != nil {
-			continue
-		}
-		limits, ok := jsonx.Get(root, "payload", "rate_limits")
-		if !ok {
-			continue
-		}
-		observedAt := rollout.modified
-		if value, found := jsonx.Get(root, "timestamp"); found {
-			if parsed, valid := jsonx.Time(value); valid {
-				observedAt = parsed
-			}
-		}
-		provider, ok := Snapshot(limits, observedAt, snapshot.OriginLocal)
-		if !ok {
-			continue
-		}
 
+		observedAt := provider.ObservedAt.Time
 		observedNow := now()
 		current := false
 		for _, window := range provider.Windows {
@@ -115,24 +118,59 @@ func (s LocalSource) Fetch(context.Context) (snapshot.Provider, error) {
 		return provider, nil
 	}
 
+	if firstReadError != nil {
+		return snapshot.Provider{}, source.Errorf(source.Transport, "Read Codex session %s: %v", firstReadPath, firstReadError)
+	}
 	return snapshot.Provider{}, source.Errorf(source.NoDataFound, "No rate limit records in the last %d Codex sessions", maxFiles)
+}
+
+// rolloutRecord normalises one rollout line that carries a payload.rate_limits record.
+func rolloutRecord(line string, modified time.Time) (snapshot.Provider, bool) {
+	root, err := jsonx.Parse([]byte(line))
+	if err != nil {
+		return snapshot.Provider{}, false
+	}
+	limits, ok := jsonx.Get(root, "payload", "rate_limits")
+	if !ok {
+		return snapshot.Provider{}, false
+	}
+	observedAt := modified
+	if value, found := jsonx.Get(root, "timestamp"); found {
+		if parsed, valid := jsonx.Time(value); valid {
+			observedAt = parsed
+		}
+	}
+	return Snapshot(limits, observedAt, snapshot.OriginLocal)
 }
 
 // LastLine returns the last whole line containing needle, reading the tail first.
 func LastLine(path string, needle string, tailBytes int) (string, bool, error) {
+	var line string
+	found, err := eachCandidate(path, needle, tailBytes, 1, func(candidate string) bool {
+		line = candidate
+		return true
+	})
+	return line, found, err
+}
+
+// eachCandidate offers whole lines containing needle to accept, newest first, and
+// stops at the first line accept keeps. The file's tail is read first because a
+// rollout is mostly transcript; only when every tail candidate is rejected does the
+// whole file get re-read, so a decoy tail line — chat text that merely quotes
+// "rate_limits" — cannot hide the real record earlier in the same rollout. At most
+// maximum lines are offered per pass.
+func eachCandidate(path, needle string, tailBytes, maximum int, accept func(line string) bool) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
-	if tailBytes <= 0 || info.Size() <= int64(tailBytes) {
-		return lastLineFromOffset(path, needle, 0, false)
+	if tailBytes > 0 && info.Size() > int64(tailBytes) {
+		offset := info.Size() - int64(tailBytes)
+		if kept, err := offerFromOffset(path, needle, offset, true, maximum, accept); err != nil || kept {
+			return kept, err
+		}
 	}
-
-	offset := info.Size() - int64(tailBytes)
-	if line, ok, err := lastLineFromOffset(path, needle, offset, true); err != nil || ok {
-		return line, ok, err
-	}
-	return lastLineFromOffset(path, needle, 0, false)
+	return offerFromOffset(path, needle, 0, false, maximum, accept)
 }
 
 type rolloutFile struct {
@@ -173,32 +211,39 @@ func newestRollouts(root string, maximum int) ([]rolloutFile, error) {
 	return files, nil
 }
 
-func lastLineFromOffset(path, needle string, offset int64, dropLeading bool) (string, bool, error) {
+// offerFromOffset walks one read of the file backwards, offering matching whole
+// lines to accept. dropLeading discards the partial first line of a mid-file read.
+func offerFromOffset(path, needle string, offset int64, dropLeading bool, maximum int, accept func(line string) bool) (bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	defer file.Close()
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {
-		return "", false, err
+		return false, err
 	}
 	data, err := io.ReadAll(file)
 	if err != nil {
-		return "", false, err
+		return false, err
 	}
 	text := string(data)
 	if dropLeading {
 		firstBreak := strings.IndexByte(text, '\n')
 		if firstBreak < 0 {
-			return "", false, nil
+			return false, nil
 		}
 		text = text[firstBreak+1:]
 	}
 	lines := strings.Split(text, "\n")
-	for index := len(lines) - 1; index >= 0; index-- {
-		if lines[index] != "" && strings.Contains(lines[index], needle) {
-			return lines[index], true, nil
+	offered := 0
+	for index := len(lines) - 1; index >= 0 && offered < maximum; index-- {
+		if lines[index] == "" || !strings.Contains(lines[index], needle) {
+			continue
+		}
+		offered++
+		if accept(lines[index]) {
+			return true, nil
 		}
 	}
-	return "", false, nil
+	return false, nil
 }
