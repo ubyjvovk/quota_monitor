@@ -4,6 +4,15 @@
 # call swift/go test directly in tickets — this is the single source of truth.
 set -u
 cd "$(dirname "$0")/.." || exit 1
+
+# 2026-08-31: an unsandboxed suite run deleted the real config; pin every test
+# to a throwaway dir so no suite can reach ~/.config/quotamon.
+if [ -z "${QUOTA_MONITOR_DIR:-}" ]; then
+  QUOTA_MONITOR_DIR="$(mktemp -d "${TMPDIR:-/tmp}/quotamon-tests.XXXXXX")"
+  trap 'rm -rf "$QUOTA_MONITOR_DIR"' EXIT
+fi
+export QUOTA_MONITOR_DIR
+
 rc=0
 
 echo "### swift test (QuotaKit)"
