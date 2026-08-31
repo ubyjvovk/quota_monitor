@@ -86,8 +86,8 @@ func TestConfigGetJSONPrintsSortedEffectiveDefaultsAndMergesAFile(t *testing.T) 
 	if err := json.Unmarshal([]byte(stdout), &defaults); err != nil {
 		t.Fatalf("config get --json defaults are not JSON: %v", err)
 	}
-	if len(defaults.Providers) != 5 {
-		t.Fatalf("default provider count = %d, want 5", len(defaults.Providers))
+	if want := len(config.Default().Providers); len(defaults.Providers) != want {
+		t.Fatalf("default provider count = %d, want %d", len(defaults.Providers), want)
 	}
 	for id, provider := range defaults.Providers {
 		if provider.Enabled {
@@ -142,6 +142,33 @@ func TestConfigSetWritesPrivateFileWithoutEchoingKeyAndPreservesEarlierEntries(t
 	}
 	if !loaded.Providers["claude"].Enabled {
 		t.Fatalf("claude entry = %#v, want enabled", loaded.Providers["claude"])
+	}
+}
+
+// A provider absent from config.Default() is rejected here as unknown however
+// well the registry knows it: RunInfra shipped that way and `config set
+// runinfra --api-key-stdin` answered `unknown provider "runinfra"`.
+func TestConfigSetAcceptsEveryKnownProviderFromStdin(t *testing.T) {
+	for id := range config.Default().Providers {
+		t.Run(id, func(t *testing.T) {
+			t.Setenv("QUOTA_MONITOR_DIR", t.TempDir())
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			args := []string{"config", "set", id, "--enabled=true", "--api-key-stdin"}
+			if exit := run(args, strings.NewReader("SECRET\n"), &stdout, &stderr, time.Now); exit != 0 {
+				t.Fatalf("run(%q) exit = %d, stderr = %q", args, exit, stderr.String())
+			}
+			if strings.Contains(stdout.String(), "SECRET") {
+				t.Fatalf("config set echoed API key: %q", stdout.String())
+			}
+			loaded, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !loaded.Providers[id].Enabled || loaded.Providers[id].APIKey != "SECRET" {
+				t.Fatalf("%s entry = %#v, want enabled with the stdin key", id, loaded.Providers[id])
+			}
+		})
 	}
 }
 
@@ -242,7 +269,7 @@ func runConfigGetJSON(t *testing.T) string {
 func assertSortedProviderKeys(t *testing.T, output string) {
 	t.Helper()
 	last := -1
-	for _, id := range []string{"claude", "codex", "deepinfra", "grok", "kimi"} {
+	for _, id := range []string{"claude", "codex", "deepinfra", "grok", "kimi", "runinfra"} {
 		index := strings.Index(output, `"`+id+`"`)
 		if index < last || index < 0 {
 			t.Fatalf("provider keys are not sorted in %q", output)

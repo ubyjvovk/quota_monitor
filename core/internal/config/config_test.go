@@ -87,7 +87,7 @@ func TestQuotaMonitorDirectoryOverridesTheConfigPath(t *testing.T) {
 
 func TestDefaultHasEveryProviderDisabled(t *testing.T) {
 	providers := Default().Providers
-	for _, id := range []string{"claude", "codex", "deepinfra", "grok", "kimi"} {
+	for _, id := range []string{"claude", "codex", "deepinfra", "grok", "kimi", "runinfra"} {
 		provider, found := providers[id]
 		if !found {
 			t.Errorf("Default().Providers is missing %q", id)
@@ -95,8 +95,33 @@ func TestDefaultHasEveryProviderDisabled(t *testing.T) {
 			t.Errorf("Default().Providers[%q].Enabled = true, want false", id)
 		}
 	}
-	if got := len(providers); got != 5 {
-		t.Fatalf("Default().Providers has %d entries, want 5", got)
+	if got := len(providers); got != 6 {
+		t.Fatalf("Default().Providers has %d entries, want 6", got)
+	}
+}
+
+// `config set <id>` validates its argument against Default().Providers, so a
+// provider missing from that map is unconfigurable from the CLI however well
+// the registry knows it — RunInfra shipped that way once and `config set
+// runinfra --api-key-stdin` answered `unknown provider "runinfra"`.
+func TestEveryDefaultProviderRoundTripsAnEnabledAPIKey(t *testing.T) {
+	for id := range Default().Providers {
+		t.Run(id, func(t *testing.T) {
+			t.Setenv("QUOTA_MONITOR_DIR", t.TempDir())
+			input := Default()
+			input.Providers[id] = Provider{Enabled: true, APIKey: "secret-" + id}
+
+			if err := input.Save(); err != nil {
+				t.Fatal(err)
+			}
+			output, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(output.Providers[id], input.Providers[id]) {
+				t.Fatalf("Load().Providers[%q] = %#v, want %#v", id, output.Providers[id], input.Providers[id])
+			}
+		})
 	}
 }
 

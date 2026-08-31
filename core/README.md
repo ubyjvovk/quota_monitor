@@ -113,7 +113,8 @@ flag:
     "codex": { "enabled": true, "live": "app-server" },
     "grok": { "enabled": true },
     "deepinfra": { "enabled": true, "api_key": "your-key" },
-    "kimi": { "enabled": false }
+    "kimi": { "enabled": false },
+    "runinfra": { "enabled": true, "api_key": "your-key" }
   }
 }
 ```
