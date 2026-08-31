@@ -23,7 +23,8 @@ public struct UsageHistory: Codable, Hashable, Sendable {
         series[Self.key(provider: provider, window: window)] ?? []
     }
 
-    /// Adds one reading per window, dropping anything from a previous window.
+    /// Adds one current reading per window, skipping windows with no reading and
+    /// dropping anything from a previous window.
     ///
     /// Pruning at the window boundary is what keeps a sparkline meaningful —
     /// carrying last week's climb into this week's chart would draw a cliff at
@@ -31,6 +32,10 @@ public struct UsageHistory: Codable, Hashable, Sendable {
     public mutating func record(_ snapshot: QuotaSnapshot, at now: Date = Date()) {
         for provider in snapshot.providers {
             for window in provider.windows {
+                guard let used = window.currentUsedPercent(asOf: now) else {
+                    continue
+                }
+
                 let key = Self.key(provider: provider.id, window: window.id)
                 var samples = series[key] ?? []
 
@@ -38,7 +43,6 @@ public struct UsageHistory: Codable, Hashable, Sendable {
                     samples.removeAll { $0.at < start }
                 }
 
-                let used = window.effectiveUsedPercent(asOf: now)
                 // Skip duplicate readings; local sources repeat between CLI turns
                 // and a flat run of identical points is noise, not signal.
                 if let last = samples.last, last.usedPercent == used,

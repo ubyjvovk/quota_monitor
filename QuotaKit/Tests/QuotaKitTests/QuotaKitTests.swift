@@ -423,6 +423,24 @@ struct CodexLiveConfigurationTests {
     #expect(!title.contains("0%"))
 }
 
+@Test func providerShortNamesMatchTheGoWaybarCatalog() {
+    let names = [
+        ("claude", "Claude", "CL"),
+        ("codex", "ChatGPT", "GPT"),
+        ("grok", "Grok", "GK"),
+        ("deepinfra", "DeepInfra", "DI"),
+        ("kimi", "Kimi", "KM"),
+    ]
+
+    for (id, displayName, expected) in names {
+        let provider = ProviderSnapshot(
+            id: id, displayName: displayName,
+            observedAt: beforeAll, origin: .live
+        )
+        #expect(provider.shortName == expected)
+    }
+}
+
 // MARK: - Hybrid fallback
 
 private struct StubSource: QuotaSource {
@@ -670,6 +688,24 @@ private func atElapsed(_ fraction: Double) -> Date {
     history.record(snapshot, at: atElapsed(0.51))  // local source unchanged between CLI turns
 
     #expect(history.samples(provider: Codex.providerID, window: "five_hour").count == 1)
+}
+
+@Test func historySkipsARolledOverWindowRatherThanRecordingZero() {
+    let window = paceWindow(usedPercent: 82)
+    let provider = ProviderSnapshot(
+        id: Codex.providerID, displayName: Codex.displayName,
+        windows: [window], observedAt: atElapsed(0.5), origin: .local
+    )
+    let key = UsageHistory.key(provider: Codex.providerID, window: "five_hour")
+    let original = UsageSample(at: atElapsed(0.5), usedPercent: 82)
+    var history = UsageHistory(series: [key: [original]])
+
+    history.record(
+        QuotaSnapshot(providers: [provider]),
+        at: paceReset.addingTimeInterval(3600)
+    )
+
+    #expect(history.samples(provider: Codex.providerID, window: "five_hour") == [original])
 }
 
 // MARK: - Unknown vs zero
