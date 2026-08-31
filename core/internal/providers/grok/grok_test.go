@@ -146,6 +146,29 @@ func TestLiveSourceMapsAuthenticationFailuresToUnauthorized(t *testing.T) {
 	}
 }
 
+func TestSnapshotRendersAMonthlyLabelAndKindForAThirtyDayPeriod(t *testing.T) {
+	root, err := jsonx.Parse([]byte(`{
+		"config":{
+			"creditUsagePercent":12,
+			"currentPeriod":{"start":"2026-08-01T00:00:00Z","end":"2026-08-31T00:00:00Z"}
+		}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, ok := Snapshot(root, time.Now())
+	if !ok {
+		t.Fatal("Snapshot() found no window")
+	}
+	window := provider.Windows[0]
+	if window.Label != "30d" || window.Kind != snapshot.KindMonthly {
+		t.Fatalf("window = %#v, want a monthly label/kind for a 30-day period", window)
+	}
+	if window.WindowMinutes == nil || *window.WindowMinutes != 30*24*60 {
+		t.Fatalf("window minutes = %v, want %d", window.WindowMinutes, 30*24*60)
+	}
+}
+
 func TestSnapshotUsesFallbackDurationAndPositivePrepaidBalance(t *testing.T) {
 	root, err := jsonx.Parse([]byte(`{
 		"config":{

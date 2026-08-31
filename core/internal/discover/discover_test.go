@@ -43,7 +43,7 @@ func TestClaudeDiscoveryUsesOnlyAStubbedSecurityExitStatus(t *testing.T) {
 	if !finding.Found || finding.Detail != "Keychain item present" {
 		t.Fatalf("Claude finding = %#v", finding)
 	}
-	if command != "security" || !reflect.DeepEqual(arguments, []string{"find-generic-password", "-s", "Claude Code-credentials"}) {
+	if command != "/usr/bin/security" || !reflect.DeepEqual(arguments, []string{"find-generic-password", "-s", "Claude Code-credentials"}) {
 		t.Fatalf("security invocation = %q %#v", command, arguments)
 	}
 }
@@ -62,6 +62,29 @@ func TestGrokDiscoveryReportsTheTokenExpiryFromAnExplicitAuthKey(t *testing.T) {
 	finding := all(deps)[2]
 	if !finding.Found || finding.Detail != "~/.grok/auth.json (token expires in 4h)" {
 		t.Fatalf("Grok finding = %#v", finding)
+	}
+}
+
+func TestGrokDiscoverySelectsAScopeDeterministicallyAcrossMapOrders(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	path := filepath.Join(home, ".grok", "auth.json")
+
+	// Sorted order puts the "a" scope first, so whichever order the map
+	// yields, discoverGrok must report the same scope's expiry.
+	orderings := []string{
+		`"https://auth.x.ai::z":{"expires_at":"2030-01-01T00:00:00Z"},"https://auth.x.ai::a":{"expires_at":"2026-08-29T22:00:00Z"}`,
+		`"https://auth.x.ai::a":{"expires_at":"2026-08-29T22:00:00Z"},"https://auth.x.ai::z":{"expires_at":"2030-01-01T00:00:00Z"}`,
+	}
+	for i, scopes := range orderings {
+		writeCredential(t, path, `{`+scopes+`}`)
+		deps := testDependencies(t, home)
+		deps.now = func() time.Time { return now }
+		finding := all(deps)[2]
+		if !finding.Found || finding.Detail != "~/.grok/auth.json (token expires in 2h)" {
+			t.Fatalf("ordering %d: Grok finding = %#v, want deterministic a-scope expiry", i, finding)
+		}
 	}
 }
 

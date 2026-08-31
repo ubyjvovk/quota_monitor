@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,7 +66,9 @@ func all(deps dependencies) []Finding {
 func discoverClaude(deps dependencies) Finding {
 	finding := Finding{ID: "claude", DisplayName: "Claude", Supported: true, Hint: "run `claude` and sign in"}
 	if deps.goos == "darwin" {
-		finding.Found = deps.run("security", "find-generic-password", "-s", "Claude Code-credentials") == nil
+		// Invoke security by absolute path so a hostile PATH entry can't
+		// substitute a fake CLI, mirroring the Claude provider.
+		finding.Found = deps.run("/usr/bin/security", "find-generic-password", "-s", "Claude Code-credentials") == nil
 		finding.Detail = "Keychain item not found"
 		if finding.Found {
 			finding.Detail = "Keychain item present"
@@ -96,21 +99,28 @@ func discoverGrok(deps dependencies) Finding {
 	if json.Unmarshal(data, &root) != nil {
 		return finding
 	}
-	for key, value := range root {
-		if !strings.HasPrefix(key, "https://auth.x.ai::") {
-			continue
+	// A map iterates in random order; sort the scopes so the expiry we report
+	// (and the scope we bind to) is deterministic, matching ParseCredentials.
+	var scopes []string
+	for key := range root {
+		if strings.HasPrefix(key, "https://auth.x.ai::") {
+			scopes = append(scopes, key)
 		}
-		finding.Found = true
-		finding.Detail = "~/.grok/auth.json"
-		var credential struct {
-			ExpiresAt json.RawMessage `json:"expires_at"`
-		}
-		if json.Unmarshal(value, &credential) == nil {
-			if expiresAt, ok := parseExpiry(credential.ExpiresAt); ok {
-				finding.Detail += " (" + expiryDetail(expiresAt, deps.now()) + ")"
-			}
-		}
+	}
+	sort.Strings(scopes)
+	if len(scopes) == 0 {
 		return finding
+	}
+	key := scopes[0]
+	finding.Found = true
+	finding.Detail = "~/.grok/auth.json"
+	var credential struct {
+		ExpiresAt json.RawMessage `json:"expires_at"`
+	}
+	if json.Unmarshal(root[key], &credential) == nil {
+		if expiresAt, ok := parseExpiry(credential.ExpiresAt); ok {
+			finding.Detail += " (" + expiryDetail(expiresAt, deps.now()) + ")"
+		}
 	}
 	return finding
 }

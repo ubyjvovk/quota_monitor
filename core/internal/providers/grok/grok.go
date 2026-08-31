@@ -115,6 +115,15 @@ func Snapshot(root any, observedAt time.Time) (snapshot.Provider, bool) {
 		}
 	}
 
+	// Prefer the provider-reported period duration over the static week so a
+	// monthly period renders as "30d"/monthly instead of a misleading Week.
+	// The literal Week fallback applies only when no period bounds are known.
+	label, kind := "Week", snapshot.KindWeekly
+	if !periodStart.IsZero() && !periodEnd.IsZero() {
+		label = snapshot.LabelFromMinutes(windowMinutes)
+		kind = snapshot.KindFromMinutes(windowMinutes)
+	}
+
 	var credits *snapshot.Credits
 	if value, found := jsonx.Get(config, "prepaidBalance", "val"); found {
 		if prepaidBalance, valid := jsonx.Float(value); valid && prepaidBalance > 0 {
@@ -133,8 +142,8 @@ func Snapshot(root any, observedAt time.Time) (snapshot.Provider, bool) {
 		DisplayName: DisplayName,
 		Windows: []snapshot.Window{{
 			ID:            "credits",
-			Label:         "Week",
-			Kind:          snapshot.KindWeekly,
+			Label:         label,
+			Kind:          kind,
 			UsedPercent:   usedPercent,
 			ResetsAt:      resetsAt,
 			WindowMinutes: windowMinutes,
