@@ -52,8 +52,7 @@ SF Mono with the console palette. Table layout changes must land in both
   stub and never touch `$HOME`, the Keychain, the network, or a subprocess.
 - Table-driven tests, `t.Run` per case, names that read as sentences.
 - Providers live in `internal/providers/<id>/` with a `README.md` each; the
-  registry (`internal/registry/`) fixes display order. Adding a provider =
-  new package + one registry line + a short name in `cmd/quotamon/waybar.go`.
+  registry (`internal/registry/`) fixes display order. Adding a provider touches SIX places (T-0062 shipped missing one): new package + registry entry + the known-provider map in `internal/config/config.go` `Default()` + a `discover` probe + a short name in `cmd/quotamon/waybar.go` + the same short name in QuotaKit's `ProviderSnapshot.shortNames`.go`.
 - Hand-check any provider change with `cd core && go run ./cmd/quotamon check`
   (probes every source independently) and compare against
   `swift run --disable-sandbox --package-path QuotaKit quotactl --json` — the
