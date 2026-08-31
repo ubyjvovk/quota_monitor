@@ -66,9 +66,7 @@ const bars = Model.iconBars({ providers: [
 assert.deepEqual(bars.map(bar => bar.id), ["first", "second"])
 assert.deepEqual(bars.map(bar => bar.percent), [10, 99])
 
-// T-0040 names a shared demo fixture that is absent from this checkout. Keep
-// these two fixture-derived contract cases explicit and runnable until the PM
-// decides whether adding the missing QuotaKit file is in scope.
+// Mirrors `quotamon --demo --json` (fixture `quotamon-demo.json` on master); fix drift by regenerating this inline copy.
 const demo = {
   providers: [
     { id: "claude", credits: { balance: "20.00", enabled: false, unlimited: false } },
