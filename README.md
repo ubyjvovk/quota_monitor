@@ -256,7 +256,7 @@ Regenerate the screenshots in this README with `scripts/screenshots.sh`
 core/                portable Go core — the snapshot contract and every source
   cmd/quotamon/      the CLI (table, --json/snapshot, waybar, check, setup)
   internal/providers/ per-provider sources (claude, codex, grok, deepinfra)
-QuotaKit/            macOS app core — Swift models, sources, engine (frozen)
+QuotaKit/            macOS app layer — Swift models, engine, shared SwiftUI
 App/                 SwiftUI menu-bar app (table, force refresh, setup pane)
 Widget/              WidgetKit extension (reads the shared snapshot)
 omarchy/             Omarchy shell bar plugin (stacked-bar icon + dropdown)

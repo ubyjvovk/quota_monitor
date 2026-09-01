@@ -4,30 +4,33 @@
      workers never edit it. -->
 
 ## What this project is
-QuotaKit shows how much of your LLM subscription quota you have left — Claude
-(Anthropic) and ChatGPT (Codex). Each provider has a **local** source (a file
-some CLI already writes) and a **live** source (an authenticated HTTP endpoint);
-`HybridProvider` runs both and prefers live, falling back to the cached local
-reading with an explanatory status. Everything normalises to `ProviderSnapshot`
-→ `[QuotaWindow]` with a `usedPercent` and a `resetsAt`.
+Quota Monitor shows how much of your LLM subscription quota you have left, for
+Claude, ChatGPT, Grok, Kimi, DeepSeek, DeepInfra, OpenRouter and RunInfra. Each
+provider has a **local** source (a file some CLI already writes) and a **live**
+source (an authenticated HTTP endpoint); `hybrid.Provider` runs both and prefers
+live, falling back to the cached reading with an explanatory status. Everything
+normalises to a snapshot of providers → windows with a `usedPercent` and a
+`resetsAt`.
 
-**Current focus is the Go core port (`core/`) — read `GO-PORT.md`, then
-`PROVIDERS.md`.** The Swift `QuotaKit` fetchers are frozen (bug-fix only) and
-serve as the reference semantics; `quotactl` is the parity oracle. The macOS
-menu-bar app is live again (rebuilt on the core, T-0031) and its panel is
+**The Go core (`core/`) owns all fetching — read `PROVIDERS.md` first.** The
+Swift provider layer and `quotactl` were the port's reference semantics and
+parity oracle; both were deleted in T-0073 once the port was finished, so
+`core/` is now the only implementation. What remains of `QuotaKit` is the macOS
+app's model, engine and UI layer, and it is live code, not frozen. The macOS
+menu-bar app runs on the core through `QuotamonRunner` and its panel is
 *literally the console table*: `ConsoleTable` (QuotaKit/Support, a Swift port
 of `core/cmd/quotamon/table.go`, golden-pinned to `quotamon --demo`) drawn in
 SF Mono with the console palette. Table layout changes must land in both
 `table.go` and `ConsoleTable.swift`.
 
 ## Layout
-- `QuotaKit/Sources/QuotaKit/Providers/` — per-provider sources. **Most work lands here.**
+- `core/internal/providers/` — per-provider sources. **Most provider work lands here.**
 - `QuotaKit/Sources/QuotaKit/Models/` — `ProviderSnapshot`, `QuotaWindow`, `UsagePace`.
-- `QuotaKit/Sources/QuotaKit/Support/` — `JSONValue` (loose JSON), `Keychain`, `QuotaFormat`.
-- `QuotaKit/Sources/QuotaKit/Engine/` — refresh loop + snapshot/history persistence.
+- `QuotaKit/Sources/QuotaKit/Support/` — `ConsoleTable`, `QuotaFormat`, `QuotaError`.
+- `QuotaKit/Sources/QuotaKit/Engine/` — `QuotamonRunner` (runs the `quotamon`
+  binary and decodes its JSON), refresh loop, snapshot/history persistence.
 - `QuotaKit/Sources/QuotaKit/UI/` — SwiftUI shared by the app and the widget
   (`ConsoleTheme`, widget view, preview data). Edit only when a ticket names it.
-- `QuotaKit/Sources/quotactl/main.swift` — the console tool.
 - `QuotaKit/Tests/QuotaKitTests/` — the whole suite, plus `Fixtures/`.
 - `App/`, `Widget/`, `QuotaMonitor.xcodeproj/`, `project.yml` — the macOS
   menu-bar app + widget. **Editable only on the `opus` lane** (runs outside
@@ -52,19 +55,21 @@ SF Mono with the console palette. Table layout changes must land in both
   stub and never touch `$HOME`, the Keychain, the network, or a subprocess.
 - Table-driven tests, `t.Run` per case, names that read as sentences.
 - Providers live in `internal/providers/<id>/` with a `README.md` each; the
-  registry (`internal/registry/`) fixes display order. Adding a provider touches SIX places (T-0062 shipped missing one): new package + registry entry + the known-provider map in `internal/config/config.go` `Default()` + a `discover` probe + a short name in `cmd/quotamon/waybar.go` + the same short name in QuotaKit's `ProviderSnapshot.shortNames`.go`.
+  registry (`internal/registry/`) fixes display order. Adding a provider touches SIX places (T-0062 shipped missing one): new package + registry entry + the known-provider map in `internal/config/config.go` `Default()` + a `discover` probe + a short name in `cmd/quotamon/waybar.go` + the same short name in QuotaKit's `ProviderSnapshot.shortNames`.
 - Hand-check any provider change with `cd core && go run ./cmd/quotamon check`
-  (probes every source independently) and compare against
-  `swift run --disable-sandbox --package-path QuotaKit quotactl --json` — the
-  Swift fetchers are the frozen reference until the cutover.
+  (probes every source independently) and `go run ./cmd/quotamon --json`. There
+  is no second implementation to compare against any more: the Go core is the
+  only source of truth, so a provider change is only as good as its tests and
+  its fixture.
 - Docs map: `PROVIDERS.md` = the provider contract (endpoints, credentials,
   gotchas — update it when you learn something new about an endpoint);
-  `GO-PORT.md` = design record + status table; `core/README.md` = user-facing
-  usage; this file = how to work here.
+  `core/README.md` = user-facing usage; this file = how to work here.
+  (`GO-PORT.md` was retired in T-0074 — the port it planned is long finished;
+  git history has it if you ever need it.)
 
 ## Conventions
 - Swift 6 with strict concurrency. Anything crossing an `async` boundary is
-  `Sendable`; sources are `struct`s conforming to `QuotaSource`.
+  `Sendable`.
 - Tests use **swift-testing**, not XCTest: `@Test func name() async throws`,
   `#expect(...)`, `#require(...)`. Test names are sentences describing the
   behaviour (`cachedReadingIsKeptAndLabelledWhenLiveFails`), not `testFoo`.
@@ -92,8 +97,7 @@ SF Mono with the console palette. Table layout changes must land in both
   path (see `App/DesignSnapshot.swift`). `run-tests.sh` (swift+go) is still the
   shared gate; the app build is an extra check the opus worker runs itself and
   the PM re-runs at review.
-- Run the console tool by hand:
-  `swift run --disable-sandbox --package-path QuotaKit quotactl`
+- Run the console tool by hand: `cd core && go run ./cmd/quotamon`
 
 ## Landmarks & gotchas
 1. **You run inside a Seatbelt sandbox, and it is strict.** `$HOME` is
