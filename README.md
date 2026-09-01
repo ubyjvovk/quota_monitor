@@ -257,7 +257,6 @@ core/                portable Go core — the snapshot contract and every source
   cmd/quotamon/      the CLI (table, --json/snapshot, waybar, check, setup)
   internal/providers/ per-provider sources (claude, codex, grok, deepinfra)
 QuotaKit/            macOS app core — Swift models, sources, engine (frozen)
-  Sources/quotactl/  diagnostic CLI (the parity reference)
 App/                 SwiftUI menu-bar app (table, force refresh, setup pane)
 Widget/              WidgetKit extension (reads the shared snapshot)
 omarchy/             Omarchy shell bar plugin (stacked-bar icon + dropdown)
@@ -309,4 +308,3 @@ Two notes:
 - **Licence:** MIT; see [`LICENSE`](LICENSE).
 - [`AGENTS.md`](AGENTS.md) — how to work here (layout, conventions, commands, gotchas).
 - [`PROVIDERS.md`](PROVIDERS.md) — the provider contract: endpoints, credentials, dead ends.
-- [`GO-PORT.md`](GO-PORT.md) — the design record and status of the Go core port.
