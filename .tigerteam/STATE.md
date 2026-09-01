@@ -1004,3 +1004,39 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   beside the binary, and an environment override cannot outrank the pin.
   Remaining by design: one account owns both repos (signature/attestation is
   the next tier, not decided).
+- 2026-09-01 — **2026.9.3 cut (owner ran `release.sh`, `4c4c640..81c76ce`,
+  build success, 6 assets); T-0080 merged; plugin master published with
+  `--no-tag`.** Sequence and why:
+  - **Why a version-only release:** the plugin's `v2026.9.2` tag pointed at
+    `7aa3d8e`, before T-0078/T-0079, so the release zip shipped the unpinned
+    installer while a git clone got the pinned one. A tag never moves, and a
+    plugin-only version is impossible under lockstep (the manifest version *is*
+    the pinned core version, and the pin script needs a matching core release),
+    so a plugin fix forces a core release. Core unchanged since 2026.9.2.
+  - **The full ritual ran for the first time:** `set-version.sh` → the publish
+    gate refused (`no digest pin for 2026.9.3`) → owner `release.sh` → build →
+    `pin-quotamon-digest.sh` (sidecar cross-checked byte-for-byte against the
+    release's `SHA256SUMS`, `32a1c0e`) → gate passed → publish.
+  - **T-0080** (owner chose "refine the Omarchy card idiom" over rendering the
+    console table): per-provider `CL/GPT/GK…` badges replacing the single
+    speedometer glyph, percentage + countdown on the label line with the
+    `resets in` line deleted (three lines per window → two), bars coloured by
+    the same three severities as the bar icon (the panel previously knew only
+    critical), spacing 6→4 and 10→8. 85 node assertions. QML unverifiable here;
+    the diff is confined to the spec'd regions.
+  - **PM error, corrected before it shipped:** I merged T-0080 saying "the tag
+    is already taken, so publishing is master-only" — true of the *main* repo's
+    tag, false of the *plugin's*, which `publish-omarchy-plugin.sh` creates
+    from HEAD's subtree. Publishing would have tagged the untested layout.
+    Fixed by adding **`--no-tag`** to the publish script (push master only;
+    rerun without the flag to cut the tag), then publishing
+    `c98d8d2..c134984` with it. Plugin tags remain `v2026.9.1`, `v2026.9.2`.
+- **Owner's eyeball, then one command.** On the Omarchy box:
+  `omarchy plugin update && omarchy restart shell`. Judge T-0080's panel.
+  Specifically flagged as a taste call: **normal bars are now green**
+  (`#879A39`, matching the icon) where they were foreground-grey like the Mac —
+  if loud, `normal → root.foreground` in `severityColor` is a one-liner. Also
+  the inter-provider gap (`Style.space(12)`) and hero padding are the next two
+  height dials, not in T-0080. Once approved:
+  `bash scripts/publish-omarchy-plugin.sh` (no flag) cuts plugin `v2026.9.3`
+  and its release, with the pinned installer and sidecar in the zip.
