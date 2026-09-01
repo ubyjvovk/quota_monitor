@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"quotamon/internal/snapshot"
+	"quotamon/internal/version"
 )
 
 // demoSnapshot keeps documentation output representative without exposing a
@@ -20,6 +21,7 @@ func demoSnapshot(base time.Time) snapshot.Snapshot {
 	deepInfraSpend := "$8.00 this month"
 
 	return snapshot.Snapshot{
+		Version: version.Value,
 		Providers: []snapshot.Provider{
 			{
 				ID: "claude", DisplayName: "Claude", Plan: &maxPlan,

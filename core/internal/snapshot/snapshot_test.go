@@ -80,6 +80,40 @@ func TestSnapshotAndProviderEncodeNilSlicesAsArrays(t *testing.T) {
 	}
 }
 
+func TestSnapshotVersionSurvivesCustomMarshallingAndIsOmittedWhenEmpty(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     string
+		wantPresent bool
+	}{
+		{name: "version is emitted", version: "2026.9.1", wantPresent: true},
+		{name: "empty version is omitted", version: "", wantPresent: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := json.Marshal(snapshot.Snapshot{
+				Version:     test.version,
+				GeneratedAt: snapshot.Time{Time: time.Unix(0, 0)},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var object map[string]any
+			if err := json.Unmarshal(encoded, &object); err != nil {
+				t.Fatal(err)
+			}
+			got, present := object["version"]
+			if present != test.wantPresent {
+				t.Fatalf("marshalled snapshot version presence = %t, want %t: %s", present, test.wantPresent, encoded)
+			}
+			if test.wantPresent && got != test.version {
+				t.Fatalf("marshalled snapshot version = %#v, want %q", got, test.version)
+			}
+		})
+	}
+}
+
 func TestCreditsEncodesTheSpendFieldSeparatelyFromBalance(t *testing.T) {
 	balance := "$18.00"
 	spend := "$7.75 this month"

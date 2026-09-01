@@ -255,6 +255,8 @@ func kindRank(kind Kind) int {
 
 // Snapshot is the complete normalised quota picture across providers.
 type Snapshot struct {
+	// Version is the quotamon release that produced this snapshot.
+	Version string `json:"version,omitempty"`
 	// Providers always encodes as an array.
 	Providers []Provider `json:"providers"`
 	// GeneratedAt is when the snapshot was assembled.
