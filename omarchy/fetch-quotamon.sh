@@ -5,7 +5,24 @@
 
 set -euo pipefail
 
-release_base=${QUOTAMON_RELEASE_BASE:-https://github.com/ubyjvovk/quota_monitor/releases/latest/download}
+if [[ $# -gt 1 ]]; then
+  echo "usage: fetch-quotamon.sh [<version>]" >&2
+  exit 2
+fi
+
+version=${1:-}
+if [[ $# -eq 1 && ! $version =~ ^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$ ]]; then
+  echo "usage: fetch-quotamon.sh [<version>]" >&2
+  exit 2
+fi
+
+if [[ -n ${QUOTAMON_RELEASE_BASE:-} ]]; then
+  release_base=$QUOTAMON_RELEASE_BASE
+elif [[ -n $version ]]; then
+  release_base="https://github.com/ubyjvovk/quota_monitor/releases/download/v$version"
+else
+  release_base=https://github.com/ubyjvovk/quota_monitor/releases/latest/download
+fi
 bin_dir=${QUOTAMON_BIN_DIR:-"$HOME/.local/bin"}
 
 # Tests and unusual systems can select an architecture explicitly. Otherwise,
@@ -37,6 +54,7 @@ trap 'rm -rf -- "$tmp_dir"' EXIT
 
 # Download into an isolated directory. Nothing under the install prefix is
 # touched until both files arrive and the selected asset verifies successfully.
+echo "Fetching quotamon ${version:-latest} from $release_base"
 curl -fsSL "$release_base/$asset" -o "$tmp_dir/$asset"
 curl -fsSL "$release_base/SHA256SUMS" -o "$tmp_dir/SHA256SUMS"
 

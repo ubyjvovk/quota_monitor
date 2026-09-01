@@ -51,6 +51,21 @@ function coreVersion(snapshot) {
   return String(snapshot.version).trim()
 }
 
+// Only a release CalVer from the manifest is safe to pass to the installer.
+function pinnedVersion(manifest) {
+  var version = manifest && typeof manifest.version === "string" ? manifest.version : ""
+  return /^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$/.test(version) ? version : ""
+}
+
+// An update is offered only when both locally reported versions are comparable.
+function coreUpdateVersion(manifest, snapshot) {
+  var version = pinnedVersion(manifest)
+  var core = coreVersion(snapshot)
+  if (version === "" || core === "") return ""
+  var comparison = compareVersions(core, version)
+  return comparison !== null && comparison < 0 ? version : ""
+}
+
 function aboutText(manifest, snapshot) {
   var version = manifest && manifest.version ? String(manifest.version).trim() : ""
   if (version === "") return ""
@@ -64,11 +79,11 @@ function versionWarning(manifest, snapshot) {
   if (minimum === "") return ""
   var core = coreVersion(snapshot)
   if (core === "") {
-    return "quotamon is older than this plugin needs (" + minimum + ") — update it and press Refresh"
+    return "quotamon is older than this plugin needs (" + minimum + ") — use the Update button below"
   }
   var comparison = compareVersions(core, minimum)
   if (comparison === null || comparison >= 0) return ""
-  return "quotamon " + core + " is older than this plugin needs (" + minimum + ") — update it and press Refresh"
+  return "quotamon " + core + " is older than this plugin needs (" + minimum + ") — use the Update button below"
 }
 
 function currentUsedPercent(window, nowMs) {
