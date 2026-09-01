@@ -37,6 +37,9 @@ type Provider struct {
 	TokenStale func(now time.Time) bool
 	// Refresh asks the provider's own client to renew a stale credential.
 	Refresh func(ctx context.Context) error
+	// RefreshHint names the command a user runs to renew this provider's
+	// credential by hand, e.g. "kimi". Empty means no hint is offered.
+	RefreshHint string
 	// Fresh bypasses stale-token early serving and forces a refresh attempt.
 	Fresh bool
 	// Now supplies the current time and defaults to time.Now.
@@ -93,7 +96,11 @@ func (p Provider) PreFetch(ctx context.Context) Prepared {
 	}
 	if p.Refresh != nil {
 		if err := p.Refresh(ctx); err != nil {
-			prepared.refreshMessage = fmt.Sprintf("%s sign-in is stale — open `kimi` to refresh it (auto-refresh failed: %v)", p.DisplayName, err)
+			if p.RefreshHint != "" {
+				prepared.refreshMessage = fmt.Sprintf("%s sign-in is stale — open `%s` to refresh it (auto-refresh failed: %v)", p.DisplayName, p.RefreshHint, err)
+			} else {
+				prepared.refreshMessage = fmt.Sprintf("%s sign-in is stale and could not be refreshed automatically: %v", p.DisplayName, err)
+			}
 		}
 	}
 	return prepared
@@ -176,9 +183,13 @@ func fallbackReading(candidate outcome, asOf time.Time, refreshMessage string, l
 		return provider, true
 	}
 	if provider.Status.State == "ok" && len(provider.Windows) > 0 && !hasCurrentWindow(provider, asOf) {
-		provider.Status = snapshot.NeedsSetup(
-			"Last reading " + format.Age(asOf.Sub(provider.ObservedAt.Time)) + "; its window has since reset",
-		)
+		message := "Last reading " + format.Age(asOf.Sub(provider.ObservedAt.Time)) + "; its window has since reset"
+		if refreshMessage != "" {
+			message += " — " + refreshMessage
+		} else if liveError != nil {
+			message += " — live refresh failed: " + liveError.Error()
+		}
+		provider.Status = snapshot.NeedsSetup(message)
 		return provider, true
 	}
 	if refreshMessage != "" {
