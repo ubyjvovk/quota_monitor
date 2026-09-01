@@ -8,6 +8,8 @@ return {
   parseManifest,
   compareVersions,
   coreVersion,
+  pinnedVersion,
+  coreUpdateVersion,
   aboutText,
   versionWarning,
   formatCountdown,
@@ -46,6 +48,18 @@ assert.equal(Model.coreVersion({ version: " 2026.9.1 " }), "2026.9.1")
 assert.equal(Model.coreVersion({ providers: [] }), "")
 assert.equal(Model.coreVersion(null), "")
 
+assert.equal(Model.pinnedVersion({ version: "2026.9.2" }), "2026.9.2")
+assert.equal(Model.pinnedVersion({}), "")
+assert.equal(Model.pinnedVersion({ version: "v2026.9.2" }), "")
+
+assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "2026.9.1" }), "2026.9.2")
+assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "2026.9.2" }), "")
+assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "2026.9.3" }), "")
+assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { providers: [] }), "")
+assert.equal(Model.coreUpdateVersion({ version: "latest" }, { version: "2026.9.1" }), "")
+assert.equal(Model.coreUpdateVersion({ version: "2026.10.1" }, { version: "2026.9.9" }), "2026.10.1")
+assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "dev" }), "")
+
 assert.equal(
   Model.aboutText(manifest, { version: "2026.9.1" }),
   "Quota Monitor 2026.9.1 · quotamon 2026.9.1"
@@ -59,16 +73,21 @@ assert.equal(Model.aboutText({ version: "", minQuotamon: "" }, { version: "2026.
 assert.equal(Model.versionWarning(manifest, null), "")
 assert.equal(
   Model.versionWarning(manifest, { providers: [] }),
-  "quotamon is older than this plugin needs (2026.9.1) — update it and press Refresh"
+  "quotamon is older than this plugin needs (2026.9.1) — use the Update button below"
 )
 assert.equal(
   Model.versionWarning(manifest, { version: "2026.8.3" }),
-  "quotamon 2026.8.3 is older than this plugin needs (2026.9.1) — update it and press Refresh"
+  "quotamon 2026.8.3 is older than this plugin needs (2026.9.1) — use the Update button below"
 )
 assert.equal(Model.versionWarning(manifest, { version: "2026.9.1" }), "")
 assert.equal(Model.versionWarning(manifest, { version: "2026.10.0" }), "")
 assert.equal(Model.versionWarning(manifest, { version: "dev" }), "")
 assert.equal(Model.versionWarning({ version: "2026.9.1", minQuotamon: "" }, {}), "")
+
+const providersOnlyRelease = { version: "2026.9.3", minQuotamon: "2026.9.1" }
+const providersOnlyCore = { version: "2026.9.1" }
+assert.equal(Model.coreUpdateVersion(providersOnlyRelease, providersOnlyCore), "2026.9.3")
+assert.equal(Model.versionWarning(providersOnlyRelease, providersOnlyCore), "")
 
 assert.equal(Model.formatCountdown(after(40 * 60 * 60 * 1000), now), "resets in 1d 16h")
 assert.equal(Model.formatCountdown(after(2 * 60 * 60 * 1000 + 7 * 60 * 1000), now), "resets in 2h 7m")

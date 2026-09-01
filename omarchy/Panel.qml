@@ -129,7 +129,11 @@ Panel {
     installProc.stderrBuf = ""
     // argv execution with this fixed, plugin-local path performs no shell
     // interpolation of settings or other user-controlled values.
-    installProc.command = ["bash", root.installScript]
+    var command = ["bash", root.installScript]
+    var pinned = Model.pinnedVersion(root.manifest)
+    if (pinned !== "")
+      command.push(pinned)
+    installProc.command = command
     installProc.running = true
     installWatchdog.restart()
   }
@@ -435,6 +439,19 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap
+          }
+
+          Button {
+            visible: Model.coreUpdateVersion(root.manifest, root.snapshot) !== ""
+            width: parent.width
+            text: installProc.running ? "Updating…" : "Update quotamon to " + Model.coreUpdateVersion(root.manifest, root.snapshot)
+            iconText: "󰇚"
+            iconSpinning: installProc.running
+            bordered: true
+            enabled: !installProc.running
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.installQuotamon()
           }
 
           Text {

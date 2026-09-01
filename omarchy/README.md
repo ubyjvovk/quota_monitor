@@ -40,7 +40,10 @@ omarchy plugin enable ubyjvovk.quotamon
 The button runs the fetch script included in the plugin. It downloads the
 binary for the current architecture, verifies it against the release's
 `SHA256SUMS`, installs it in `~/.local/bin`, and runs non-interactive setup when
-there is no config yet. It never runs automatically.
+there is no config yet. When the installed core is older than the plugin, the
+panel also offers an **Update quotamon** button. Both buttons install the exact
+core version shipped with the plugin rather than whichever release is newest.
+Nothing is ever installed or updated automatically; a person must click.
 
 To run the same installer manually:
 
