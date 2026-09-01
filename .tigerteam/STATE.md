@@ -992,3 +992,15 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   plugin release as shipped verifies against the release's own `SHA256SUMS`,
   not the sidecar — the pinned installer reaches users only after the next
   publish.
+- 2026-09-01 — **Pinned installer published** (owner-approved): plugin master
+  `7aa3d8e..c98d8d2`, master-only as designed — `v2026.9.2` untouched, run
+  count stayed at 2 (the tag trigger correctly ignored a branch push). The
+  publish gate printed `Digest pin: quotamon-2026.9.2.sha256 verified against
+  release v2026.9.2` before pushing. Verified after the fact by pulling the
+  **published** `fetch-quotamon.sh` and sidecar raw from GitHub into a temp dir
+  and installing into a temp bin: `(pinned)`, asset only, `OK`. The security
+  review's three points are now closed at the published tip: the panel path is
+  pinned to a version, the digest lives in reviewed plugin code rather than
+  beside the binary, and an environment override cannot outrank the pin.
+  Remaining by design: one account owns both repos (signature/attestation is
+  the next tier, not decided).
