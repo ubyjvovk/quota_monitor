@@ -1075,3 +1075,24 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   21:10Z (its documented ~6 h lifetime); the panel now correctly says
   `Cached 37m ago — live refresh failed: Grok sign-in expired — run grok login`
   (T-0072's attached reason). Not a bug; `grok login` on that box clears it.
+- 2026-09-01 — **Owner approved T-0081 on a real box ("looks great"); plugin
+  `v2026.9.3` tagged and released; main pushed.** Preview replaced with the
+  owner's capture of the console panel against edited demo data (both warning
+  and critical colours visible, 832x902, `51005c2`). Publish (no flag):
+  `dd913a1..118f350`, tag created, the plugin workflow — including the new
+  `Verify digest pin` step, running for real for the first time — completed
+  **success**. Main `81c76ce..51005c2` pushed, 0 unpushed.
+  **PM verified the release zip the way a user would use it:** downloaded
+  `quotamon-omarchy-2026.9.3.zip` (208,311 bytes), confirmed it carries the
+  sidecar (byte-identical to the release's `SHA256SUMS`), `preview.png`, and
+  the console `Panel.qml`; ran the zip's own `fetch-quotamon.sh 2026.9.3` into
+  a temp dir → `(pinned)`, `quotamon-linux-arm64: OK`. The T-0076 notes body
+  took the with-notes path (core release existed) — still only a
+  `Full Changelog` link, because the core release has no hand-written notes.
+- **Day's end state.** Both repos at 2026.9.3 with matching content; plugin
+  tags `v2026.9.1`–`v2026.9.3`; board empty, 78 accepted; suite green. Open,
+  none blocking: the macOS About-panel eyeball (CalVer wave); hand-written
+  core release notes so T-0076 has something to carry; the next security tier
+  (signature / attestation) if ever wanted; `Models/UsagePace.swift` possibly
+  dead (`UsagePace`, `Verdict` unreferenced). The owner should set the widget's
+  `exec` setting back to `quotamon` if a demo wrapper is still in place.
