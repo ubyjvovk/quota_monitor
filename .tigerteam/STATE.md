@@ -600,3 +600,55 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
     xcodebuild); PM builds, renders and verifies the About panel at review.
   - Known gap noted while surveying: `README.md` links to `core/README.md`,
     which does not exist — folded into T-0068 as a link fix, not a new file.
+- 2026-09-01 — **Packaging wave COMPLETE: T-0064..T-0069 all accepted on master
+  (6/6, zero reworks).** Every component now reports CalVer `2026.9.1` from one
+  `VERSION` file. Landed:
+  - **Core**: `core/internal/version.Value` stamped at link time by
+    `core/Makefile` from `../VERSION` (defaults to `dev`, so a bare
+    `go build ./...` is honestly labelled); `quotamon --version` works in any
+    argv position; snapshot JSON carries a top-level `version` key through the
+    custom `MarshalJSON`.
+  - **Packaging**: `scripts/set-version.sh` (sole writer, CalVer-validated,
+    idempotent) + `scripts/check-versions.sh` (first step of `test-all.sh`, so
+    drift is a suite failure); `build.sh`/`release.sh` read `VERSION`;
+    `release.sh --next` suggests the month's next micro; the release workflow
+    checks out first, uses `VERSION` for dispatch builds, and refuses a tag
+    that disagrees with the file.
+  - **Mac app**: `QuotamonRunner.coreVersion()` runs `quotamon --version`;
+    About shows `quotamon core 2026.9.1` above the description, cached per
+    launch (the *rendered line* is cached, so a failing bundle never respawns
+    the binary on each open).
+  - **Omarchy plugin**: id `quotamon` → **`ubyjvovk.quotamon`** (install path
+    break, owner-approved), `license: MIT`, informational `dependencies`
+    block, rewritten top-level and barWidget descriptions; panel footer
+    `Quota Monitor 2026.9.1 · quotamon 2026.9.1` plus a too-old warning. All
+    logic in `Model.js` behind node tests; `Panel.qml` reads the manifest once
+    via XMLHttpRequest (status 0 or 200 for `file://`) and renders bindings.
+  - **MIT `LICENSE`** at the root and a byte-identical `omarchy/LICENSE` (the
+    subtree split would otherwise publish the plugin unlicensed).
+  - **README** doc-synced; the dead `core/README.md` link fixed (not created).
+- **PM verification notes for that wave** (what was checked by hand, not
+  trusted from reports): built stamped + unstamped Go binaries and confirmed
+  `quotamon 2026.9.1` / `quotamon dev`; re-ran the check-versions negative test;
+  exercised every `Model.js` branch directly — `compareVersions("2026.10.1",
+  "2026.9.9") === 1` (numeric, not lexical: a string compare would call October
+  older than September) and a `dev` core produces **no** false "too old"
+  warning; confirmed `cache.Store` holds per-provider readings, not whole
+  snapshots, so a snapshot's `version` always reflects the running binary.
+- **Two gaps found and handled, not papered over:**
+  (a) T-0065 regressed `release.sh` to `cat VERSION`, which only works from the
+  repo root — my spec never asked for cwd-independence, so rather than reject I
+  filed **T-0069** (C1, one line, `ROOT` resolution copied from build.sh) and
+  accepted it the same cycle;
+  (b) **the macOS About panel was never visually confirmed.** It is now ordered
+  front from inside a `Task` (it must await the subprocess), one run-loop turn
+  after `NSApp.activate`. `osascript` lacks assistive access on this machine, so
+  a menu-bar extra cannot be driven programmatically — **the owner still owes a
+  5-second eyeball**: click the icon → About, confirm the panel comes forward
+  and reads `quotamon core 2026.9.1`. If it opens behind other windows the fix
+  is small, but nobody has proven it does not.
+- **Not verified anywhere (structural, unchanged):** the Omarchy QML cannot run
+  on this host. `Model.js` is node-tested; the footer's actual appearance in
+  Hyprland is unproven.
+- **NOT pushed and NOT tagged.** `scripts/release.sh` was only ever read and
+  `--dry-run`/`--next` exercised; cutting `v2026.9.1` is the owner's call.
