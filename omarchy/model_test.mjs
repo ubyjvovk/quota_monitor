@@ -64,9 +64,26 @@ assert.equal(Model.pinnedVersion({ version: "v2026.9.2" }), "")
 assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "2026.9.1" }), "2026.9.2")
 assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "2026.9.2" }), "")
 assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "2026.9.3" }), "")
-assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { providers: [] }), "")
+// A core too old to report its own version is still exactly a core that should be
+// updated: an absent `version` on a non-null snapshot means it predates the
+// 2026.9.1 key. Assert the offer AND the warning in the same test so the pairing
+// (a red "too old" line plus a button that fixes it) cannot silently break again.
+{
+  const staleManifest = { version: "2026.9.2", minQuotamon: "2026.9.1" }
+  assert.equal(Model.coreUpdateVersion(staleManifest, { providers: [] }), "2026.9.2")
+  assert.equal(
+    Model.versionWarning(staleManifest, { providers: [] }),
+    "quotamon is older than this plugin needs (2026.9.1) — use the Update button below"
+  )
+}
+// No snapshot at all (nothing installed, or nothing ran) is the Install button's
+// job, not the update offer's.
+assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, null), "")
+assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, undefined), "")
 assert.equal(Model.coreUpdateVersion({ version: "latest" }, { version: "2026.9.1" }), "")
 assert.equal(Model.coreUpdateVersion({ version: "2026.10.1" }, { version: "2026.9.9" }), "2026.10.1")
+// An unparseable version like "dev" is a deliberate local build, not a stale
+// release — it must never be offered the update button (absent ≠ unparseable).
 assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "dev" }), "")
 
 assert.equal(
