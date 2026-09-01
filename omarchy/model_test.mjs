@@ -28,7 +28,16 @@ const before = milliseconds => new Date(now - milliseconds).toISOString()
 
 const manifestRaw = readFileSync(new URL("manifest.json", import.meta.url), "utf8")
 const manifest = Model.parseManifest(manifestRaw)
-assert.deepEqual(manifest, { version: "2026.9.1", minQuotamon: "2026.9.1" })
+// The shipped manifest must parse into a usable shape. Assert its *relationships*,
+// never a version literal: `version` is rewritten by scripts/set-version.sh on
+// every release, and `minQuotamon` is hand-edited and deliberately lags it.
+const repoVersion = readFileSync(new URL("../VERSION", import.meta.url), "utf8").trim()
+assert.equal(manifest.version, repoVersion)
+assert.match(manifest.minQuotamon, /^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$/)
+
+// Behaviour is asserted against a fixed manifest, never the shipped one: pinning
+// an expected string to the live version turns every release into a test failure.
+const fixedManifest = { version: "2026.9.1", minQuotamon: "2026.9.1" }
 assert.deepEqual(Model.parseManifest("{"), { version: "", minQuotamon: "" })
 assert.deepEqual(Model.parseManifest('{"version":"2026.9.1"}'), {
   version: "2026.9.1",
@@ -61,27 +70,27 @@ assert.equal(Model.coreUpdateVersion({ version: "2026.10.1" }, { version: "2026.
 assert.equal(Model.coreUpdateVersion({ version: "2026.9.2" }, { version: "dev" }), "")
 
 assert.equal(
-  Model.aboutText(manifest, { version: "2026.9.1" }),
+  Model.aboutText(fixedManifest, { version: "2026.9.1" }),
   "Quota Monitor 2026.9.1 · quotamon 2026.9.1"
 )
 assert.equal(
-  Model.aboutText(manifest, null),
+  Model.aboutText(fixedManifest, null),
   "Quota Monitor 2026.9.1 · quotamon version unknown"
 )
 assert.equal(Model.aboutText({ version: "", minQuotamon: "" }, { version: "2026.9.1" }), "")
 
-assert.equal(Model.versionWarning(manifest, null), "")
+assert.equal(Model.versionWarning(fixedManifest, null), "")
 assert.equal(
-  Model.versionWarning(manifest, { providers: [] }),
+  Model.versionWarning(fixedManifest, { providers: [] }),
   "quotamon is older than this plugin needs (2026.9.1) — use the Update button below"
 )
 assert.equal(
-  Model.versionWarning(manifest, { version: "2026.8.3" }),
+  Model.versionWarning(fixedManifest, { version: "2026.8.3" }),
   "quotamon 2026.8.3 is older than this plugin needs (2026.9.1) — use the Update button below"
 )
-assert.equal(Model.versionWarning(manifest, { version: "2026.9.1" }), "")
-assert.equal(Model.versionWarning(manifest, { version: "2026.10.0" }), "")
-assert.equal(Model.versionWarning(manifest, { version: "dev" }), "")
+assert.equal(Model.versionWarning(fixedManifest, { version: "2026.9.1" }), "")
+assert.equal(Model.versionWarning(fixedManifest, { version: "2026.10.0" }), "")
+assert.equal(Model.versionWarning(fixedManifest, { version: "dev" }), "")
 assert.equal(Model.versionWarning({ version: "2026.9.1", minQuotamon: "" }, {}), "")
 
 const providersOnlyRelease = { version: "2026.9.3", minQuotamon: "2026.9.1" }

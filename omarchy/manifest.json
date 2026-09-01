@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ubyjvovk.quotamon",
   "name": "Quota Monitor",
-  "version": "2026.9.1",
+  "version": "2026.9.2",
   "author": "ubyjvovk",
   "license": "MIT",
   "description": "How much of your LLM subscription quota is left — Claude, ChatGPT, Grok, Kimi, DeepSeek, DeepInfra, OpenRouter and RunInfra — as one stacked bar icon with a click-through panel.",
