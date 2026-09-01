@@ -45,4 +45,4 @@ echo "Installed statusLine -> $MIRROR_SCRIPT"
 echo "Backup of previous settings: $BACKUP"
 echo
 echo "Claude Code writes \$HOME/.quota-monitor/claude-usage.json on its next render."
-echo "Open a Claude Code session, then re-run: swift run quotactl"
+echo "Open a Claude Code session, then re-run: quotamon"
