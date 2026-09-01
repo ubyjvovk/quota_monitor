@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 
 const modelSource = readFileSync(new URL("Model.js", import.meta.url), "utf8")
 const Model = new Function(`${modelSource}
@@ -22,7 +22,9 @@ return {
   tightestForRow,
   creditsText,
   providerRows,
-  iconBars
+  iconBars,
+  consoleLines,
+  consoleText
 }`)()
 
 const now = Date.parse("2026-01-02T00:00:00Z")
@@ -34,9 +36,124 @@ const manifest = Model.parseManifest(manifestRaw)
 // The shipped manifest must parse into a usable shape. Assert its *relationships*,
 // never a version literal: `version` is rewritten by scripts/set-version.sh on
 // every release, and `minQuotamon` is hand-edited and deliberately lags it.
-const repoVersion = readFileSync(new URL("../VERSION", import.meta.url), "utf8").trim()
-assert.equal(manifest.version, repoVersion)
+const repoVersionURL = new URL("../VERSION", import.meta.url)
+if (existsSync(repoVersionURL)) {
+  const repoVersion = readFileSync(repoVersionURL, "utf8").trim()
+  assert.equal(manifest.version, repoVersion)
+} else {
+  console.log("skipping repository VERSION check: ../VERSION is not present")
+}
 assert.match(manifest.minQuotamon, /^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$/)
+
+const demoFixtureURL = new URL("../QuotaKit/Tests/QuotaKitTests/Fixtures/quotamon-demo.json", import.meta.url)
+if (existsSync(demoFixtureURL)) {
+  const snapshot = JSON.parse(readFileSync(demoFixtureURL, "utf8"))
+  const golden = `Claude       max            live · just now
+  Fable wk  █████░░░░░░░░░░░░░░░  23%  1d 16h
+  Week      ███░░░░░░░░░░░░░░░░░  15%  1d 16h
+  5h        █░░░░░░░░░░░░░░░░░░░   6%  2h 39m
+  credits   20.00 (not enabled)
+
+ChatGPT      plus           live · just now
+  5h        ████████████████████ 100%  8m
+  Week      ██████░░░░░░░░░░░░░░  31%  5d 11h
+
+Grok         —              live · just now
+  Week      █████████████░░░░░░░  63%  2d 13h
+
+DeepInfra    pay-as-you-go  live · just now
+  balance   $10.03 remaining
+  spend     $8.00 this month
+
+Kimi         basic          live · just now
+  5h        ████████░░░░░░░░░░░░  42%  3h 12m
+  Week      ███░░░░░░░░░░░░░░░░░  14%  4d 6h`
+
+  assert.equal(Model.consoleText(snapshot, Date.parse(snapshot.generatedAt)), golden)
+} else {
+  console.log("skipping console golden: ../QuotaKit test fixture is not present")
+}
+
+const consoleWindow = percent => ({
+  providers: [{
+    id: "test",
+    displayName: "Test",
+    plan: "basic",
+    observedAt: new Date(now).toISOString(),
+    origin: "live",
+    status: { state: "ok" },
+    windows: [{
+      id: "session",
+      label: "5h",
+      kind: "session",
+      usedPercent: percent,
+      resetsAt: after(60 * 60 * 1000)
+    }]
+  }]
+})
+
+{
+  const line = Model.consoleLines(consoleWindow(6), now)[1]
+  assert.equal(line.spans.find(span => span.text.includes("█")).tone, "plain")
+  assert.equal(line.spans.find(span => span.text.includes("░")).tone, "dim")
+  assert.equal(line.spans.find(span => span.text.includes("6%")).tone, "plain")
+}
+
+{
+  const line = Model.consoleLines(consoleWindow(85), now)[1]
+  assert.equal(line.spans.find(span => span.text.includes("█")).tone, "warning")
+  assert.equal(line.spans.find(span => span.text.includes("85%")).tone, "warning")
+}
+
+{
+  const line = Model.consoleLines(consoleWindow(100), now)[1]
+  assert.equal(line.spans.find(span => span.text.includes("█")).tone, "critical")
+  assert.equal(line.spans.find(span => span.text.includes("100%")).tone, "critical")
+  assert.equal(line.spans.some(span => span.text.includes("░")), false)
+}
+
+{
+  const lines = Model.consoleLines({ providers: [{
+    id: "test",
+    displayName: "Test",
+    observedAt: new Date(now).toISOString(),
+    origin: "unavailable",
+    status: { state: "needsSetup", message: "run setup" },
+    windows: []
+  }] }, now)
+  const status = lines[lines.length - 1]
+  assert.equal(status.spans.length, 1)
+  assert.equal(status.spans[0].text, "  !  run setup")
+  assert.equal(status.spans[0].tone, "critical")
+}
+
+{
+  const provider = displayName => ({
+    id: displayName.toLowerCase(),
+    displayName,
+    observedAt: new Date(now).toISOString(),
+    origin: "live",
+    status: { state: "ok" },
+    windows: []
+  })
+  const lines = Model.consoleLines({ providers: [provider("First"), provider("Second")] }, now)
+  assert.equal(lines.filter(line => line.spans.length === 0).length, 1)
+  assert.equal(lines[1].spans.length, 0)
+  assert.equal(lines[lines.length - 1].spans.length === 0, false)
+}
+
+{
+  const text = Model.consoleText({ providers: [{
+    id: "test",
+    displayName: "No Plan",
+    plan: null,
+    observedAt: new Date(now).toISOString(),
+    origin: "live",
+    status: { state: "ok" },
+    windows: []
+  }] }, now)
+  assert.equal(text, "No Plan      —              live · just now")
+}
 
 // Behaviour is asserted against a fixed manifest, never the shipped one: pinning
 // an expected string to the live version turns every release into a test failure.

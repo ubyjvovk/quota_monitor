@@ -16,9 +16,8 @@ Panel {
   readonly property var barIdentity: hostWidget || root
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
-  readonly property color dim: Qt.darker(foreground, 1.55)
-  readonly property color track: Style.selectedFillFor(foreground, Color.accent)
+  readonly property color urgent: bar ? bar.urgent : root.toneColor("critical")
+  readonly property color dim: root.toneColor("dim")
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   property var snapshot: null
@@ -53,10 +52,10 @@ Panel {
   readonly property string severity: Model.severity(headlinePercent)
   readonly property bool alarming: severity === "critical"
   function clamp(value, lo, hi) { return Math.max(lo, Math.min(hi, value)) }
-  function severityColor(severity) {
-    if (severity === "normal") return "#879A39"
-    if (severity === "warning") return "#d0772b"
-    if (severity === "critical") return root.urgent
+  function toneColor(tone) {
+    if (tone === "critical") return Color.urgent
+    if (tone === "warning") return Color.accent
+    if (tone === "dim") return Color.muted
     return root.foreground
   }
 
@@ -334,74 +333,54 @@ Panel {
             visible: root.lastError !== ""
             width: parent.width
             text: root.lastError
-            color: root.urgent
+            color: root.toneColor("critical")
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.body
             wrapMode: Text.WordWrap
           }
 
-          Repeater {
-            model: root.rows
+          Text {
+            id: consoleLineMeasure
+            visible: false
+            text: "M"
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
 
-            Column {
-              required property var modelData
-              width: column.width
-              spacing: Style.space(8)
+          // Model.consoleLines is the only source of layout for this console table.
+          Column {
+            id: consoleTable
+            width: column.width
+            spacing: 0
 
-              PanelHero {
-                width: parent.width
-                title: modelData.displayName
-                meta: Model.providerMeta(modelData)
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                iconComponent: Component {
-                  Rectangle {
-                    color: root.track
-                    radius: Style.space(4)
-                    implicitWidth: badgeText.implicitWidth + Style.space(8)
-                    implicitHeight: badgeText.implicitHeight + Style.space(4)
+            Repeater {
+              model: Model.consoleLines(root.snapshot, root.nowMs)
+
+              Item {
+                id: consoleLine
+                required property var modelData
+                readonly property var spans: modelData.spans
+                width: consoleTable.width
+                height: spans.length === 0
+                  ? consoleLineMeasure.implicitHeight
+                  : consoleRow.implicitHeight
+
+                Row {
+                  id: consoleRow
+                  spacing: 0
+
+                  Repeater {
+                    model: consoleLine.spans
 
                     Text {
-                      id: badgeText
-                      anchors.centerIn: parent
-                      text: Model.providerBadge(modelData)
-                      color: root.foreground
+                      required property var modelData
+                      text: modelData.text
+                      color: root.toneColor(modelData.tone)
                       font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
+                      font.pixelSize: Style.font.body
                     }
                   }
                 }
-              }
-
-              Text {
-                visible: modelData.statusState !== "ok" && modelData.statusMessage !== ""
-                width: parent.width
-                text: modelData.statusMessage
-                color: root.urgent
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-
-              Repeater {
-                model: modelData.windows
-
-                WindowRow {
-                  required property var modelData
-                  width: column.width
-                  window: modelData
-                }
-              }
-
-              Text {
-                visible: modelData.creditsText !== ""
-                width: parent.width
-                text: modelData.creditsText
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
               }
             }
           }
@@ -411,11 +390,10 @@ Panel {
             width: parent.width
             topPadding: Style.space(12)
             text: "No quota readings yet.\nRun `quotamon setup` if this is the first time."
-            color: root.dim
+            color: root.toneColor("dim")
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
           }
 
           Button {
@@ -451,9 +429,9 @@ Panel {
             visible: text !== ""
             width: parent.width
             text: Model.versionWarning(root.manifest, root.snapshot)
-            color: root.urgent
+            color: root.toneColor("critical")
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.body
             wrapMode: Text.WordWrap
           }
 
@@ -474,9 +452,9 @@ Panel {
             visible: text !== ""
             width: parent.width
             text: Model.aboutText(root.manifest, root.snapshot)
-            color: root.dim
+            color: root.toneColor("dim")
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.body
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
           }
@@ -485,72 +463,4 @@ Panel {
     }
   }
 
-  component WindowRow: Column {
-    id: windowRow
-    property var window: null
-    spacing: Style.space(4)
-
-    Item {
-      width: parent.width
-      implicitHeight: Math.max(label.implicitHeight, valueGroup.implicitHeight)
-
-      Text {
-        id: label
-        text: windowRow.window ? windowRow.window.label : ""
-        color: root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        elide: Text.ElideRight
-        anchors.left: parent.left
-        anchors.right: valueGroup.left
-        anchors.rightMargin: Style.spacing.sm
-        anchors.verticalCenter: parent.verticalCenter
-      }
-
-      Row {
-        id: valueGroup
-        spacing: Style.spacing.sm
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-
-        Text {
-          visible: text !== ""
-          text: Model.countdownText(windowRow.window, root.nowMs)
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-        }
-
-        Text {
-          id: value
-          text: windowRow.window ? windowRow.window.percentText : "—"
-          color: windowRow.window && windowRow.window.alarming ? root.urgent : root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-        }
-      }
-    }
-
-    Item {
-      width: parent.width
-      implicitHeight: Math.max(Style.space(4), Math.round(Style.spacing.controlHeight * 0.14))
-      visible: windowRow.window && windowRow.window.percent !== null
-
-      Rectangle {
-        id: meterTrack
-        anchors.fill: parent
-        radius: height / 2
-        color: root.track
-      }
-
-      Rectangle {
-        anchors.left: meterTrack.left
-        anchors.verticalCenter: meterTrack.verticalCenter
-        height: meterTrack.height
-        radius: meterTrack.radius
-        width: meterTrack.width * root.clamp((windowRow.window && windowRow.window.percent !== null ? windowRow.window.percent : 0) / 100, 0, 1)
-        color: root.severityColor(windowRow.window ? windowRow.window.severity : "unavailable")
-      }
-    }
-  }
 }

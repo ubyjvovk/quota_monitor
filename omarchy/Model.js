@@ -278,6 +278,118 @@ function originLabel(origin) {
   return "unavailable"
 }
 
+function runeCount(value) {
+  return Array.from(String(value)).length
+}
+
+function padTableCell(value, width) {
+  var text = String(value)
+  var padding = width - runeCount(text)
+  return padding > 0 ? text + " ".repeat(padding) : text
+}
+
+function truncateAndPadTableCell(value, width) {
+  var runes = Array.from(String(value))
+  if (runes.length > width) return padTableCell(runes.slice(0, width - 1).join("") + "…", width)
+  return padTableCell(value, width)
+}
+
+function tableCountdown(window, nowMs) {
+  if (!window || !window.resetsAt) return "—"
+  var formatted = formatCountdown(window.resetsAt, nowMs)
+  if (formatted === "window reset") return "reset"
+  var prefix = "resets in "
+  return formatted.slice(0, prefix.length) === prefix ? formatted.slice(prefix.length) : "—"
+}
+
+function tableTone(percent) {
+  var value = severity(percent)
+  if (value === "warning") return "warning"
+  if (value === "critical") return "critical"
+  return "plain"
+}
+
+function appendConsoleSpan(spans, text, tone) {
+  if (text === "") return
+  var last = spans.length > 0 ? spans[spans.length - 1] : null
+  if (last && last.tone === tone) last.text += text
+  else spans.push({ text: text, tone: tone })
+}
+
+function consoleWindowLine(window, nowMs) {
+  var used = currentUsedPercent(window, nowMs)
+  var percent = formatPercent(used)
+  var percentPadding = Math.max(0, 4 - runeCount(percent))
+  var filled = used === null ? 0 : Math.min(20, Math.max(0, Math.round(used / 5)))
+  var tone = tableTone(used)
+  var spans = []
+
+  appendConsoleSpan(spans, "  " + truncateAndPadTableCell(window.label, 9) + " ", "plain")
+  appendConsoleSpan(spans, "█".repeat(filled), tone)
+  appendConsoleSpan(spans, "░".repeat(20 - filled), "dim")
+  appendConsoleSpan(spans, " " + " ".repeat(percentPadding), "plain")
+  appendConsoleSpan(spans, percent, used === null ? "plain" : tone)
+  appendConsoleSpan(spans, "  " + tableCountdown(window, nowMs), "plain")
+  return { spans: spans }
+}
+
+function creditLines(credits) {
+  if (hasValue(credits, "spend") && !credits.unlimited) {
+    var lines = []
+    var balance = tableCredits(credits)
+    if (balance !== null) lines.push("  " + padTableCell("balance", 9) + " " + balance)
+    lines.push("  " + padTableCell("spend", 9) + " " + String(credits.spend))
+    return lines
+  }
+  var detail = tableCredits(credits)
+  if (detail === null) return []
+  var label = credits.unlimited && hasValue(credits, "balance") ? "spend" : "credits"
+  return ["  " + padTableCell(label, 9) + " " + detail]
+}
+
+function consoleProviderLines(provider, nowMs) {
+  provider = provider || {}
+  var plan = hasValue(provider, "plan") ? String(provider.plan) : "—"
+  var header = padTableCell(provider.displayName || "", 12) + " " +
+    padTableCell(plan, 14) + " " + originLabel(provider.origin) + " · " +
+    formatAge(provider.observedAt, nowMs)
+  var lines = [{ spans: [{ text: header, tone: "plain" }] }]
+  var windows = sortedWindows(provider, nowMs)
+  for (var i = 0; i < windows.length; i++) lines.push(consoleWindowLine(windows[i] || {}, nowMs))
+
+  if (provider.credits) {
+    var credits = creditLines(provider.credits)
+    for (var j = 0; j < credits.length; j++) {
+      lines.push({ spans: [{ text: credits[j], tone: "plain" }] })
+    }
+  }
+  var status = provider.status || {}
+  if (String(status.state || "ok") !== "ok") {
+    lines.push({ spans: [{ text: "  !  " + String(status.message || ""), tone: "critical" }] })
+  }
+  return lines
+}
+
+// Port of core/cmd/quotamon/table.go, matching ConsoleTable.swift.
+// Returns [{ spans: [{ text, tone }] }]; a separator line has spans: [].
+// tone ∈ "plain" | "dim" | "warning" | "critical"
+function consoleLines(snapshot, nowMs) {
+  var providers = snapshot && Array.isArray(snapshot.providers) ? snapshot.providers : []
+  var lines = []
+  for (var i = 0; i < providers.length; i++) {
+    if (lines.length > 0) lines.push({ spans: [] })
+    lines = lines.concat(consoleProviderLines(providers[i], nowMs))
+  }
+  return lines
+}
+
+// The spans of every line joined, lines joined by a newline.
+function consoleText(snapshot, nowMs) {
+  return consoleLines(snapshot, nowMs).map(function(line) {
+    return line.spans.map(function(span) { return span.text }).join("")
+  }).join("\n")
+}
+
 function providerRows(snapshot, nowMs) {
   var providers = snapshot && snapshot.providers ? snapshot.providers : []
   var rows = []
