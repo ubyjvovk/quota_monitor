@@ -3,6 +3,16 @@
 A dumb renderer of `quotamon --json`, in the same spirit as the macOS
 menu-bar app and the Waybar module.
 
+## Generated repository
+
+This repository is generated from the `omarchy/` directory in
+[`ubyjvovk/quota_monitor`](https://github.com/ubyjvovk/quota_monitor), which is
+the source of truth. Open pull requests there; this repository's `master`
+branch is force-pushed from the upstream subtree. Each publish tags
+`v<CalVer>` to match the main repository's release of the same version. The
+installable zip for each tag is available from this plugin repository's
+[Releases page](https://github.com/ubyjvovk/quotamon-omarchy/releases).
+
 The bar icon stacks one thin capsule per provider, filled to that
 provider's tightest current window and coloured by severity (`normal`
 below 70%, `warning` below 90%, `critical` above that). Click opens a

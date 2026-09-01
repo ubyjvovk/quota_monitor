@@ -145,7 +145,7 @@ omarchy plugin enable ubyjvovk.quotamon --section center --after omarchy.clock
 
 After editing plugin files, remount with `omarchy restart shell` — a file-watch
 reload often leaves the old icon mounted. Maintainers publish the standalone
-plugin repository with `scripts/publish-omarchy-plugin.sh`.
+plugin repository by following the [release sequence](#contributing--for-agents).
 
 The panel footer shows the Quota Monitor plugin version beside the `quotamon`
 core version, and warns when the installed core is older than the minimum in
@@ -296,12 +296,16 @@ Two notes:
   (`MICRO` is not the day). The repo-root [`VERSION`](VERSION) file is the
   single source of truth; bump it only with `scripts/set-version.sh <calver>`.
   `scripts/check-versions.sh` runs in the test suite and fails if the packaged
-  version surfaces drift. `scripts/release.sh --next` suggests the next CalVer;
-  `scripts/release.sh` tags the current value as `v<VERSION>` and pushes master
-  plus the tag, triggering `.github/workflows/release.yml`, which builds the
-  universal DMG plus the standalone `quotamon` binaries and publishes them to
-  the GitHub Release. Signing and notarization switch on automatically when
-  the secrets listed in the workflow are present.
+  version surfaces drift. `scripts/release.sh --next` suggests the next CalVer.
+  The release sequence is `scripts/set-version.sh <calver>` → commit the bump →
+  `scripts/release.sh` → `scripts/publish-omarchy-plugin.sh`. The release script
+  tags the current value as `v<VERSION>` and pushes master plus the tag,
+  triggering `.github/workflows/release.yml`, which builds the universal DMG
+  plus the standalone `quotamon` binaries and publishes them to the main GitHub
+  Release. The publish script mirrors `omarchy/` to the plugin repository and
+  tags it `v<VERSION>`, which cuts the plugin's own release. Signing and
+  notarization switch on automatically when the secrets listed in the main
+  workflow are present.
 - **Licence:** MIT; see [`LICENSE`](LICENSE).
 - [`AGENTS.md`](AGENTS.md) — how to work here (layout, conventions, commands, gotchas).
 - [`PROVIDERS.md`](PROVIDERS.md) — the provider contract: endpoints, credentials, dead ends.
