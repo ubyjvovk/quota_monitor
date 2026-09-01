@@ -1096,3 +1096,22 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   (signature / attestation) if ever wanted; `Models/UsagePace.swift` possibly
   dead (`UsagePace`, `Verdict` unreferenced). The owner should set the widget's
   `exec` setting back to `quotamon` if a demo wrapper is still in place.
+- 2026-09-01 — **2026.9.4 released on both repos; `QUOTAMON_RELEASE_BASE` is
+  gone.** Owner: "why do we have QUOTAMON_RELEASE_BASE at all? we should
+  explicitly set the github address." Verified before agreeing: **no committed
+  test used it** (my earlier claim that "our own tests do" was wrong — its only
+  real use was T-0060's one-time offline acceptance run); every later mention
+  was the T-0078 refusal or tests of that refusal. A trust knob with no
+  consumer, on the one path (by-hand, no version) the sidecar does not cover.
+  Removed by the PM (`323634d`): the origin is a constant in the reviewed
+  script, the T-0078 refusal went with it, `QUOTAMON_ARCH`/`QUOTAMON_BIN_DIR`
+  stay (asset name and install dir, not origin). Verified with
+  `QUOTAMON_RELEASE_BASE=https://evil.invalid` in the environment: fetches from
+  GitHub anyway, `OK` against the sidecar.
+  Ritual ran clean: `set-version.sh 2026.9.4` → gate refused (no pin) → owner
+  `release.sh` (`c081407..b10ab5a`, build success) → pin (identical to
+  `SHA256SUMS`, `268fee5`) → publish with tag (`118f350..d3bf350`,
+  `v2026.9.4`) → plugin workflow success → **zip verified**: 11 files incl.
+  sidecar and preview, zero `QUOTAMON_RELEASE_BASE` occurrences, and the zip's
+  own installer run with the hostile env var still fetched from GitHub,
+  `(pinned)`, `OK`. Main pushed, 0 unpushed. Board empty, 78 accepted.
