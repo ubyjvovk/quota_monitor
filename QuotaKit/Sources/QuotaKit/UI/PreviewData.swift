@@ -9,7 +9,7 @@ public extension QuotaSnapshot {
         return QuotaSnapshot(
             providers: [
                 ProviderSnapshot(
-                    id: Claude.providerID, displayName: Claude.displayName, plan: "max",
+                    id: "claude", displayName: "Claude", plan: "max",
                     windows: [
                         QuotaWindow(id: "five_hour", label: "5h", kind: .session,
                                     usedPercent: 71, resetsAt: now.addingTimeInterval(3600 * 2),
@@ -21,7 +21,7 @@ public extension QuotaSnapshot {
                     observedAt: now, origin: .live
                 ),
                 ProviderSnapshot(
-                    id: Codex.providerID, displayName: Codex.displayName, plan: "plus",
+                    id: "codex", displayName: "ChatGPT", plan: "plus",
                     windows: [
                         QuotaWindow(id: "primary", label: "Week", kind: .weekly,
                                     usedPercent: 18, resetsAt: now.addingTimeInterval(86_400 * 2),
@@ -51,11 +51,11 @@ public extension UsageHistory {
             }
         }
         // Front-loaded burn: climbs faster than the clock.
-        ramp(UsageHistory.key(provider: Claude.providerID, window: "five_hour"),
+        ramp(UsageHistory.key(provider: "claude", window: "five_hour"),
              span: 3600 * 3, to: 71, curve: 0.65)
-        ramp(UsageHistory.key(provider: Claude.providerID, window: "seven_day"),
+        ramp(UsageHistory.key(provider: "claude", window: "seven_day"),
              span: 86_400 * 2, to: 12, curve: 1.1)
-        ramp(UsageHistory.key(provider: Codex.providerID, window: "primary"),
+        ramp(UsageHistory.key(provider: "codex", window: "primary"),
              span: 86_400 * 5, to: 18, curve: 1.3)
         return history
     }

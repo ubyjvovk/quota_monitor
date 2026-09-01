@@ -1,10 +1,8 @@
 import Foundation
 import Observation
 
-/// Owns the provider set, refreshes them, and publishes the result.
-///
-/// Adding a provider means adding one `HybridProvider` to `ProviderCatalog.all`
-/// — the UI is driven entirely off the normalised snapshot and needs no changes.
+/// Owns quota snapshots, refreshes them through the Go core runner, and
+/// publishes the result.
 @MainActor
 @Observable
 public final class QuotaEngine {
@@ -57,12 +55,6 @@ public final class QuotaEngine {
         self.lastRefreshedAt = snapshot.generatedAt
     }
 
-    // MARK: - Providers
-
-    private func makeProviders() -> [HybridProvider] {
-        ProviderCatalog.all(isLiveEnabled: settings.isLiveEnabled)
-    }
-
     // MARK: - Refresh
 
     /// Refreshes quota data using normal cache behavior.
@@ -76,36 +68,18 @@ public final class QuotaEngine {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        if let runner {
-            do {
-                let freshSnapshot = try await runner.snapshot(fresh: fresh)
-                accept(freshSnapshot)
-                lastError = nil
-            } catch {
-                lastError = error.localizedDescription
-            }
+        guard let runner else {
+            lastError = "No quotamon runner configured"
             return
         }
 
-        let providers = makeProviders()
-        var results: [ProviderSnapshot] = await withTaskGroup(of: ProviderSnapshot.self) { group in
-            for provider in providers {
-                group.addTask { await provider.fetch() }
-            }
-            var collected: [ProviderSnapshot] = []
-            for await result in group { collected.append(result) }
-            return collected
+        do {
+            let freshSnapshot = try await runner.snapshot(fresh: fresh)
+            accept(freshSnapshot)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
         }
-
-        // Task groups complete out of order; keep the declared provider order stable.
-        let order = providers.map(\.providerID)
-        results.sort {
-            (order.firstIndex(of: $0.id) ?? .max) < (order.firstIndex(of: $1.id) ?? .max)
-        }
-
-        let freshSnapshot = QuotaSnapshot(providers: results, generatedAt: Date())
-        accept(freshSnapshot)
-        lastError = nil
     }
 
     private func accept(_ freshSnapshot: QuotaSnapshot) {

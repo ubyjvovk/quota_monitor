@@ -232,8 +232,8 @@ public struct ProviderSnapshot: Codable, Hashable, Sendable, Identifiable {
 
     static let shortNames: [String: String] = [
         // Keep in sync with core/cmd/quotamon/waybar.go, the compact-name catalog.
-        Claude.providerID: "CL",
-        Codex.providerID: "GPT",
+        "claude": "CL",
+        "codex": "GPT",
         "grok": "GK",
         "deepinfra": "DI",
         "kimi": "KM",
