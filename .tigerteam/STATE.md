@@ -720,3 +720,56 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   window has since reset"). Honest, but an odd shop window; a capture with both
   providers live would sell it better. Cannot be taken here — Omarchy is not on
   this machine. Also still open: the 5-second eyeball on the macOS About panel.
+- 2026-09-01 — **Grok was frozen on stale cache on every machine; root cause
+  found, fixed and verified live (T-0071, T-0072 accepted).** The owner reported
+  it stuck in the Omarchy panel and then locally "even tho i just spent some
+  tokens". It was never a token, network or refresh fault:
+  - `~/.grok/auth.json` was valid for another six hours, and a direct call to
+    `cli-chat-proxy.grok.com/v1/billing?format=credits` returned **200** — with
+    **no `creditUsagePercent` and no `productUsage`**. The weekly period had
+    reset that morning at 11:09:21Z and usage since rounded to zero; the API is
+    protobuf-JSON, which omits default scalars and empty repeated fields. Zero
+    usage is transmitted as silence.
+  - `grok.Snapshot` treated that silence as corruption and returned
+    `ok = false`, so every live fetch was judged malformed and hybrid fell back
+    to a cache written **four minutes before the reset**, pinned at 100%.
+    Verified: `quotamon --json --fresh` returned `origin: local`,
+    `usedPercent: 100`, `resetsAt` already in the past.
+  - **T-0071**: absence inside a recognised envelope now means zero, with a
+    `productUsage` sum as a defensive fallback and the real captured response
+    committed as `grok-billing-credits-zero.json`. Verified after the merge on
+    master against the live endpoint: `origin: live`, `status: ok`,
+    `usedPercent: 0`, `resetsAt: 2026-09-08T11:09:21Z`.
+  - **T-0072**: `fallbackReading`'s window-rolled-over branch returned before it
+    ever read `liveError`, so the one actionable sentence
+    ("Unrecognised response from Grok billing endpoint") was computed and
+    discarded — which is exactly why this looked like a refresh bug and cost an
+    hour. The reason is now appended. Also replaced the hardcoded ``open `kimi` ``
+    in `PreFetch` with a `RefreshHint` field; **the field is unwired** —
+    `registry.go` still needs `RefreshHint: "kimi"` on the Kimi provider, a
+    one-line PM follow-up.
+- **Consequence not yet handled:** the fix reaches the owner's Linux box only
+  through a release — `omarchy/fetch-quotamon.sh` pulls from
+  `releases/latest/download`. Fixing Grok there means `set-version.sh 2026.9.2`
+  → commit → `release.sh` → `publish-omarchy-plugin.sh`, which would also carry
+  `preview.png` into a fresh plugin release. Owner's call.
+- 2026-09-01 — **T-0073/T-0074 filed: drop the superseded Swift core.** Owner:
+  "we probably should drop the deprecated core swift files since the core is all
+  go now". PM survey first, so the deletion set is evidence rather than
+  intuition: `QuotaEngine.refresh(fresh:)` returns early whenever `runner` is
+  non-nil, and the only real engine is `QuotaEngine(runner: CoreBinary.runner)`
+  — so the entire `Providers/` layer is already **unreachable at runtime**. A
+  symbol-by-symbol scan over Sources/App/Widget/Tests shows `Providers/` is
+  referenced only by the library, its own tests and `quotactl`; the `Claude` and
+  `Keychain` hits in `App/` are prose in comments, not type references. Cascade:
+  `ConsoleReport` (tests + quotactl only), `Keychain` (Providers + ConsoleReport
+  + tests), `JSONValue` (Providers only). `PreviewData` needs `Claude.providerID`
+  / `Codex.providerID` replaced by the literals the Go core emits.
+  **Constraints written into the ticket:** the `Fixtures/` directory must not be
+  touched — `core/internal/fixtures/fixtures.go` loads ten fixtures from it by
+  name and `ConsoleTableTests` loads `quotamon-demo.json` through
+  `Bundle.module`, so a tidy-up there breaks the **Go** suite. `GO-PORT.md` is a
+  dated record and must not be edited to match the present. `AGENTS.md` is the
+  PM's file and the PM updates it at accept. No worker on this board can build
+  the Xcode targets, so the ticket stops at `swift build` and the PM verifies
+  the app and widget by hand.
