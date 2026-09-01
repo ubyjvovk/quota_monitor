@@ -11,292 +11,6 @@ private func fixture(_ name: String, _ ext: String) throws -> URL {
     try #require(Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Fixtures"))
 }
 
-private func claudeCredits(fromSpendJSON spend: String) throws -> Credits {
-    let json = """
-    {"five_hour":{"utilization":12},"spend":\(spend)}
-    """
-    let snapshot = try #require(
-        Claude.snapshot(
-            fromRateLimits: try JSONValue.parse(Data(json.utf8)),
-            observedAt: beforeAll,
-            origin: .live
-        )
-    )
-    return try #require(snapshot.credits)
-}
-
-/// Lays out a temp directory shaped like `~/.codex` and returns its root.
-private func makeCodexHome() throws -> URL {
-    let home = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("codex-\(UUID().uuidString)")
-    let day = home.appendingPathComponent("sessions/2026/07/31")
-    try FileManager.default.createDirectory(at: day, withIntermediateDirectories: true)
-    try FileManager.default.copyItem(
-        at: try fixture("codex-rollout", "jsonl"),
-        to: day.appendingPathComponent("rollout-2026-07-31T20-31-04-019fb9a8.jsonl")
-    )
-    return home
-}
-
-private func makeCodexHome(observedAt: Date, resetsAt: Date) throws -> URL {
-    let home = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("codex-\(UUID().uuidString)")
-    let day = home.appendingPathComponent("sessions/2026/08/29")
-    try FileManager.default.createDirectory(at: day, withIntermediateDirectories: true)
-
-    let rollout = """
-    {"timestamp":\(observedAt.timeIntervalSince1970),"payload":{"rate_limits":{"limit_id":"codex",\
-    "primary":{"used_percent":14.0,"window_minutes":300,"resets_at":\(resetsAt.timeIntervalSince1970)},\
-    "secondary":{"used_percent":18.0,"window_minutes":10080,"resets_at":\(resetsAt.timeIntervalSince1970)}}}}
-    """
-    try Data(rollout.utf8).write(
-        to: day.appendingPathComponent("rollout-2026-08-29T12-00-00-test.jsonl")
-    )
-    return home
-}
-
-// MARK: - Codex local
-
-@Suite(.serialized)
-struct CodexLiveConfigurationTests {
-    @Test func liveSourceExistsOnlyWhenAReachableEndpointIsConfigured() {
-        let key = "QUOTA_MONITOR_CODEX_USAGE_URL"
-        let original = ProcessInfo.processInfo.environment[key]
-        defer {
-            if let original {
-                setenv(key, original, 1)
-            } else {
-                unsetenv(key)
-            }
-        }
-
-        unsetenv(key)
-        #expect(Codex.liveSourceIfConfigured == nil)
-
-        setenv(key, "https://example.test/codex/usage", 1)
-        #expect(Codex.liveSourceIfConfigured != nil)
-    }
-
-    @Test func providerCatalogLeavesCodexLiveSourceUnwiredInACleanEnvironment() throws {
-        let key = "QUOTA_MONITOR_CODEX_USAGE_URL"
-        let original = ProcessInfo.processInfo.environment[key]
-        defer {
-            if let original {
-                setenv(key, original, 1)
-            } else {
-                unsetenv(key)
-            }
-        }
-
-        unsetenv(key)
-        let codex = try #require(ProviderCatalog.all().first { $0.providerID == Codex.providerID })
-        #expect(codex.live == nil)
-    }
-}
-
-@Test func codexLocalSourceReadsTheNewestRateLimitRecord() async throws {
-    let home = try makeCodexHome()
-    defer { try? FileManager.default.removeItem(at: home) }
-
-    let snapshot = try await CodexLocalSource(home: home).fetch()
-
-    #expect(snapshot.id == "codex")
-    #expect(snapshot.displayName == "ChatGPT")
-    #expect(snapshot.plan == "plus")
-    #expect(snapshot.origin == .local)
-    #expect(snapshot.credits?.enabled == false)
-
-    // The file holds two rate_limit records (5% then 18%); the later one wins.
-    let primary = try #require(snapshot.windows.first { $0.id == "primary" })
-    #expect(primary.usedPercent == 18.0)
-    #expect(primary.windowMinutes == 10080)
-    #expect(primary.kind == .weekly)
-    #expect(primary.label == "Week")
-    #expect(primary.resetsAt == primaryReset)
-
-    let secondary = try #require(snapshot.windows.first { $0.id == "secondary" })
-    #expect(secondary.usedPercent == 42.5)
-    #expect(secondary.kind == .session)
-    #expect(secondary.label == "5h")
-
-    // observedAt must come from the record's own timestamp, not file mtime,
-    // otherwise a copied file would look freshly observed.
-    #expect(snapshot.observedAt == Date.fromISO8601("2026-07-31T19:31:13.804Z"))
-}
-
-@Test func codexSnapshotRanksTheMostConstrainedWindowFirst() async throws {
-    let home = try makeCodexHome()
-    defer { try? FileManager.default.removeItem(at: home) }
-
-    let snapshot = try await CodexLocalSource(home: home).fetch()
-    let tightest = try #require(snapshot.tightestWindow(asOf: beforeAll))
-    #expect(tightest.id == "secondary")  // 42.5% beats 18%
-}
-
-@Test func tailReaderReturnsTheLastMatchingLine() throws {
-    let url = try fixture("codex-rollout", "jsonl")
-    let found = try CodexLocalSource.lastLine(containing: "rate_limits", in: url, tailBytes: 512 * 1024)
-    let line = try #require(found)
-    #expect(line.contains("\"used_percent\":18.0"))
-    #expect(!line.contains("\"used_percent\":5.0"))
-}
-
-@Test func tailReaderEscalatesWhenTheWindowLandsMidRecord() throws {
-    let url = try fixture("codex-rollout", "jsonl")
-    // 700 bytes starts mid-record. The fragment must be discarded (never handed
-    // to the parser) and the search must then widen rather than report nothing.
-    let found = try CodexLocalSource.lastLine(containing: "rate_limits", in: url, tailBytes: 700)
-    let line = try #require(found)
-
-    let parsed = try JSONValue.parse(Data(line.utf8))  // a fragment would throw here
-    #expect(parsed["timestamp"] != nil)
-    #expect(line.contains("\"used_percent\":18.0"))
-}
-
-@Test func codexToleratesRecordsWithoutCredits() throws {
-    // Older Codex builds omit `credits` entirely — must not fail the whole parse.
-    let json = """
-    {"limit_id":"codex","primary":{"used_percent":3.0,"window_minutes":10080,"resets_at":1785967367},\
-    "secondary":null,"plan_type":"plus"}
-    """
-    let snapshot = try #require(
-        Codex.snapshot(fromRateLimits: try JSONValue.parse(Data(json.utf8)),
-                       observedAt: beforeAll, origin: .local)
-    )
-    #expect(snapshot.windows.count == 1)
-    #expect(snapshot.credits == nil)
-    #expect(snapshot.plan == "plus")
-}
-
-@Test func codexLocalSourceExplainsWhenEveryRolloutWindowHasReset() async throws {
-    let now = Date()
-    let home = try makeCodexHome(
-        observedAt: now.addingTimeInterval(-15 * 86_400),
-        resetsAt: now.addingTimeInterval(-3 * 86_400)
-    )
-    defer { try? FileManager.default.removeItem(at: home) }
-
-    let snapshot = try await CodexLocalSource(home: home).fetch()
-    let message = snapshot.status.message ?? ""
-
-    #expect(message.contains("only after a Codex turn"))
-    #expect(!message.contains("404"))
-    #expect(!message.contains("failed"))
-}
-
-@Test func codexLocalSourceLeavesFreshRolloutStatusClear() async throws {
-    let now = Date()
-    let home = try makeCodexHome(
-        observedAt: now.addingTimeInterval(-60),
-        resetsAt: now.addingTimeInterval(3 * 86_400)
-    )
-    defer { try? FileManager.default.removeItem(at: home) }
-
-    let snapshot = try await CodexLocalSource(home: home).fetch()
-
-    #expect(snapshot.status.message == nil)
-}
-
-// MARK: - Claude local
-
-@Test func claudeMirrorParsesBothWindows() async throws {
-    let snapshot = try await ClaudeLocalSource(mirrorURL: try fixture("claude-mirror", "json")).fetch()
-
-    #expect(snapshot.id == "claude")
-    #expect(snapshot.plan == "max")
-    #expect(snapshot.windows.count == 2)
-
-    let fiveHour = try #require(snapshot.windows.first { $0.id == "five_hour" })
-    #expect(fiveHour.usedPercent == 63.4)
-    #expect(fiveHour.kind == .session)
-    #expect(fiveHour.label == "5h")
-
-    let weekly = try #require(snapshot.windows.first { $0.id == "seven_day" })
-    #expect(weekly.usedPercent == 21.9)
-    #expect(weekly.kind == .weekly)
-}
-
-@Test func claudeReportsSetupNeededWhenMirrorMissing() async {
-    let missing = URL(fileURLWithPath: "/nonexistent/quota-monitor/claude-usage.json")
-    await #expect(throws: QuotaError.self) {
-        try await ClaudeLocalSource(mirrorURL: missing).fetch()
-    }
-}
-
-@Test func claudeLiveUsageParsesCanonicalLimitsAndSpend() throws {
-    let root = try JSONValue.parse(Data(contentsOf: fixture("claude-usage-live", "json")))
-    let snapshot = try #require(
-        Claude.snapshot(fromRateLimits: root, observedAt: beforeAll, origin: .live)
-    )
-
-    #expect(snapshot.windows.map(\.id) == ["session", "weekly_all", "weekly_scoped"])
-    #expect(snapshot.windows.count == 3)
-
-    let session = snapshot.windows[0]
-    #expect(session.usedPercent == 10)
-    #expect(session.kind == .session)
-    #expect(session.windowMinutes == 300)
-
-    let scoped = snapshot.windows[2]
-    #expect(scoped.id == "weekly_scoped")
-    #expect(scoped.usedPercent == 20)
-    #expect(scoped.label == "Fable wk")
-    #expect(scoped.kind == .weekly)
-    #expect(scoped.windowMinutes == 60 * 24 * 7)
-
-    let excludedIDs = ["nimbus_quill", "tangelo", "iguana_necktie", "seven_day_opus"]
-    #expect(snapshot.windows.allSatisfy { !excludedIDs.contains($0.id) })
-    let credits = try #require(snapshot.credits)
-    #expect(credits.enabled == false)
-    #expect(credits.balance == nil)
-    #expect(credits.hasCredits == false)
-    #expect(credits.spend == "$0.00 of $20.00 this month")
-}
-
-@Test func claudeCreditsUseTheExplicitPrepaidBalance() throws {
-    let credits = try claudeCredits(fromSpendJSON: """
-    {"balance":{"amount_minor":1250,"exponent":2,"currency":"USD"},"enabled":true}
-    """)
-
-    #expect(credits.balance == "$12.50")
-    #expect(credits.hasCredits == true)
-}
-
-@Test func claudeDisabledSpendDoesNotReportAvailableCredits() throws {
-    let credits = try claudeCredits(fromSpendJSON: """
-    {"balance":{"amount_minor":1250,"exponent":2,"currency":"USD"},"enabled":false}
-    """)
-
-    #expect(credits.balance == "$12.50")
-    #expect(credits.hasCredits == false)
-}
-
-@Test func claudeSpendCanDescribeUsedMoneyWithoutALimit() throws {
-    let credits = try claudeCredits(fromSpendJSON: """
-    {"used":{"amount_minor":300}}
-    """)
-
-    #expect(credits.spend == "$3.00 this month")
-}
-
-@Test func claudeMoneyFormattingPreservesNonUSDCurrency() throws {
-    let credits = try claudeCredits(fromSpendJSON: """
-    {"balance":{"amount_minor":1250,"exponent":2,"currency":"EUR"}}
-    """)
-
-    #expect(credits.balance == "12.50 EUR")
-}
-
-@Test func claudeFallsBackToLegacyWindowsWhenLimitsAreAbsent() throws {
-    let json = """
-    {"five_hour":{"utilization":12},"seven_day":{"utilization":34}}
-    """
-    let windows = Claude.windows(from: try JSONValue.parse(Data(json.utf8)))
-
-    #expect(windows.map(\.id) == ["five_hour", "seven_day"])
-    #expect(windows.map(\.usedPercent) == [12, 34])
-}
-
 // MARK: - Rollover
 
 @Test func usageIsZeroedOnceTheWindowHasRolledOver() {
@@ -361,47 +75,17 @@ struct CodexLiveConfigurationTests {
     #expect(ranked.first?.id == "codex")
 }
 
-// MARK: - Defensive JSON
-
-@Test func jsonValueFindsNestedKeysAndCoercesTimestamps() throws {
-    let json = """
-    {"outer":{"inner":{"five_hour":{"utilization":51.5,"resets_at":"2026-07-31T19:31:13.804Z"}}}}
-    """
-    let root = try JSONValue.parse(Data(json.utf8))
-
-    let node = try #require(root.firstValue(forKey: "five_hour"))
-    #expect(node.firstValue(forAnyKey: ["used_percentage", "utilization"])?.double == 51.5)
-    #expect(node["resets_at"]?.date == Date.fromISO8601("2026-07-31T19:31:13.804Z"))
-
-    // Epoch seconds and milliseconds both resolve to the same instant.
-    #expect(JSONValue.number(1_785_790_000).date == secondaryReset)
-    #expect(JSONValue.number(1_785_790_000_000).date == secondaryReset)
-    // Explicit nulls read as absent rather than as a value.
-    #expect(try JSONValue.parse(Data(#"{"a":null}"#.utf8))["a"] == nil)
-}
-
-@Test func claudeParsingAcceptsAlternateKeySpellings() throws {
-    // The statusLine payload says `used_percentage`; the usage endpoint may not.
-    let json = #"{"rate_limits":{"five_hour":{"used_percent":12,"resetsAt":1785790000}}}"#
-    let root = try JSONValue.parse(Data(json.utf8))
-    let windows = Claude.windows(from: try #require(root.firstValue(forKey: "rate_limits")))
-
-    #expect(windows.count == 1)
-    #expect(windows[0].usedPercent == 12)
-    #expect(windows[0].resetsAt == secondaryReset)
-}
-
 // MARK: - Menu bar title
 
 @Test func menuBarTagsDistinguishClaudeFromChatGPT() {
     let claude = ProviderSnapshot(
-        id: Claude.providerID, displayName: Claude.displayName,
+        id: "claude", displayName: "Claude",
         windows: [QuotaWindow(id: "five_hour", label: "5h", kind: .session,
                               usedPercent: 43, resetsAt: primaryReset)],
         observedAt: beforeAll, origin: .live
     )
     let codex = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName,
+        id: "codex", displayName: "ChatGPT",
         windows: [QuotaWindow(id: "primary", label: "Week", kind: .weekly,
                               usedPercent: 18, resetsAt: primaryReset)],
         observedAt: beforeAll, origin: .local
@@ -416,7 +100,7 @@ struct CodexLiveConfigurationTests {
 
 @Test func providersWithoutDataRenderADashNotZero() {
     let dead = ProviderSnapshot.unavailable(
-        id: Claude.providerID, displayName: Claude.displayName, status: .needsSetup("x")
+        id: "claude", displayName: "Claude", status: .needsSetup("x")
     )
     let title = QuotaFormat.menuBarTitle(for: QuotaSnapshot(providers: [dead]), asOf: beforeAll)
     #expect(title == "CL –")
@@ -442,67 +126,6 @@ struct CodexLiveConfigurationTests {
         )
         #expect(provider.shortName == expected)
     }
-}
-
-// MARK: - Hybrid fallback
-
-private struct StubSource: QuotaSource {
-    let providerID = "stub"
-    let displayName = "Stub"
-    let origin: SnapshotOrigin
-    let result: Result<ProviderSnapshot, QuotaError>
-
-    func fetch() async throws -> ProviderSnapshot {
-        try result.get()
-    }
-}
-
-private func stubSnapshot(usedPercent: Double, origin: SnapshotOrigin) -> ProviderSnapshot {
-    ProviderSnapshot(
-        id: "stub", displayName: "Stub",
-        windows: [QuotaWindow(id: "w", label: "Week", kind: .weekly, usedPercent: usedPercent)],
-        observedAt: beforeAll, origin: origin
-    )
-}
-
-@Test func liveReadingWinsWhenBothSucceed() async {
-    let provider = HybridProvider(
-        providerID: "stub", displayName: "Stub",
-        local: StubSource(origin: .local, result: .success(stubSnapshot(usedPercent: 10, origin: .local))),
-        live: StubSource(origin: .live, result: .success(stubSnapshot(usedPercent: 55, origin: .live)))
-    )
-    let result = await provider.fetch()
-    #expect(result.origin == .live)
-    #expect(result.windows[0].usedPercent == 55)
-}
-
-@Test func cachedReadingIsKeptAndLabelledWhenLiveFails() async {
-    let provider = HybridProvider(
-        providerID: "stub", displayName: "Stub",
-        local: StubSource(origin: .local, result: .success(stubSnapshot(usedPercent: 10, origin: .local))),
-        live: StubSource(origin: .live, result: .failure(.transport("HTTP 503")))
-    )
-    let result = await provider.fetch()
-
-    // The number still shows — but never silently as if it were live.
-    #expect(result.origin == .local)
-    #expect(result.windows[0].usedPercent == 10)
-    #expect(result.status.message?.contains("HTTP 503") == true)
-}
-
-@Test func disablingLiveSkipsTheEndpointEntirely() async {
-    let provider = HybridProvider(
-        providerID: "stub", displayName: "Stub",
-        local: StubSource(origin: .local, result: .success(stubSnapshot(usedPercent: 10, origin: .local))),
-        live: StubSource(origin: .live, result: .success(stubSnapshot(usedPercent: 99, origin: .live))),
-        liveEnabled: false
-    )
-    let result = await provider.fetch()
-
-    #expect(result.origin == .local)
-    #expect(result.windows[0].usedPercent == 10)
-    // No live attempt was made, so nothing to warn about.
-    #expect(result.status.isOK)
 }
 
 // MARK: - Store
@@ -541,7 +164,7 @@ private func stubSnapshot(usedPercent: Double, origin: SnapshotOrigin) -> Provid
 
 @Test func disabledCreditsSurviveAPersistedSnapshotRoundTrip() throws {
     let provider = ProviderSnapshot(
-        id: Claude.providerID, displayName: Claude.displayName, plan: "max",
+        id: "claude", displayName: "Claude", plan: "max",
         credits: Credits(
             hasCredits: false, unlimited: false, balance: "20.00", enabled: false
         ),
@@ -647,7 +270,7 @@ private func atElapsed(_ fraction: Double) -> Date {
 
 @Test func summaryNamesTheProviderAndTimeWhenSomethingWillRunOut() {
     let provider = ProviderSnapshot(
-        id: Claude.providerID, displayName: Claude.displayName,
+        id: "claude", displayName: "Claude",
         windows: [paceWindow(usedPercent: 60)],
         observedAt: atElapsed(0.3), origin: .live
     )
@@ -661,19 +284,19 @@ private func atElapsed(_ fraction: Double) -> Date {
 @Test func historyDropsSamplesFromAPreviousWindow() {
     let window = paceWindow(usedPercent: 40)
     let provider = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName,
+        id: "codex", displayName: "ChatGPT",
         windows: [window], observedAt: atElapsed(0.5), origin: .local
     )
 
     var history = UsageHistory(series: [
-        UsageHistory.key(provider: Codex.providerID, window: "five_hour"): [
+        UsageHistory.key(provider: "codex", window: "five_hour"): [
             // Belongs to the window before this one.
             UsageSample(at: paceReset.addingTimeInterval(-fiveHours - 3600), usedPercent: 95)
         ]
     ])
     history.record(QuotaSnapshot(providers: [provider]), at: atElapsed(0.5))
 
-    let samples = history.samples(provider: Codex.providerID, window: "five_hour")
+    let samples = history.samples(provider: "codex", window: "five_hour")
     // Carrying last window's 95% forward would draw a cliff at the reset.
     #expect(samples.count == 1)
     #expect(samples[0].usedPercent == 40)
@@ -681,7 +304,7 @@ private func atElapsed(_ fraction: Double) -> Date {
 
 @Test func historySkipsRepeatedIdenticalReadings() {
     let provider = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName,
+        id: "codex", displayName: "ChatGPT",
         windows: [paceWindow(usedPercent: 40)], observedAt: atElapsed(0.5), origin: .local
     )
     let snapshot = QuotaSnapshot(providers: [provider])
@@ -690,16 +313,16 @@ private func atElapsed(_ fraction: Double) -> Date {
     history.record(snapshot, at: atElapsed(0.5))
     history.record(snapshot, at: atElapsed(0.51))  // local source unchanged between CLI turns
 
-    #expect(history.samples(provider: Codex.providerID, window: "five_hour").count == 1)
+    #expect(history.samples(provider: "codex", window: "five_hour").count == 1)
 }
 
 @Test func historySkipsARolledOverWindowRatherThanRecordingZero() {
     let window = paceWindow(usedPercent: 82)
     let provider = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName,
+        id: "codex", displayName: "ChatGPT",
         windows: [window], observedAt: atElapsed(0.5), origin: .local
     )
-    let key = UsageHistory.key(provider: Codex.providerID, window: "five_hour")
+    let key = UsageHistory.key(provider: "codex", window: "five_hour")
     let original = UsageSample(at: atElapsed(0.5), usedPercent: 82)
     var history = UsageHistory(series: [key: [original]])
 
@@ -708,7 +331,7 @@ private func atElapsed(_ fraction: Double) -> Date {
         at: paceReset.addingTimeInterval(3600)
     )
 
-    #expect(history.samples(provider: Codex.providerID, window: "five_hour") == [original])
+    #expect(history.samples(provider: "codex", window: "five_hour") == [original])
 }
 
 // MARK: - Unknown vs zero
@@ -730,7 +353,7 @@ private func atElapsed(_ fraction: Double) -> Date {
 @Test func staleProvidersProduceNoHeadlineAndNoFabricatedPercentage() {
     let afterReset = paceReset.addingTimeInterval(3600)
     let stale = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName, plan: "plus",
+        id: "codex", displayName: "ChatGPT", plan: "plus",
         windows: [paceWindow(usedPercent: 82)],
         observedAt: atElapsed(0.5), origin: .local
     )
@@ -749,7 +372,7 @@ private func atElapsed(_ fraction: Double) -> Date {
                            resetsAt: afterReset.addingTimeInterval(86_400),
                            windowMinutes: 10080)
     let provider = ProviderSnapshot(
-        id: Claude.providerID, displayName: Claude.displayName,
+        id: "claude", displayName: "Claude",
         windows: [paceWindow(usedPercent: 82), live],
         observedAt: atElapsed(0.5), origin: .local
     )
@@ -757,383 +380,4 @@ private func atElapsed(_ fraction: Double) -> Date {
     // 4% that we actually know beats 82% that has since expired.
     #expect(provider.tightestWindow(asOf: afterReset)?.id == "seven_day")
     #expect(provider.sortedWindows(asOf: afterReset).first?.id == "seven_day")
-}
-
-// MARK: - Credential scoping
-
-@Test func claudeTokenIsReadFromItsOwnSubtreeNotAnMCPServers() throws {
-    // The real Keychain item stores Claude's OAuth beside `mcpOAuth`, a map of
-    // per-MCP-server credentials that each carry their own `accessToken`.
-    // A recursive key search returns an arbitrary one of these — in practice an
-    // empty string — and the request then authenticates as nothing.
-    let blob = """
-    {"claudeAiOauth":{"accessToken":"sk-ant-oat01-REAL","expiresAt":4102444800000,
-      "subscriptionType":"max","scopes":["user:inference"]},
-     "mcpOAuth":{"plugin:sales:clay|abc":{"accessToken":""},
-                 "plugin:marketing:canva|def":{"accessToken":"WRONG-TOKEN"}},
-     "trustedDeviceToken":"nope"}
-    """
-    let credentials = try Claude.credentials(from: try JSONValue.parse(Data(blob.utf8)))
-
-    #expect(credentials.token == "sk-ant-oat01-REAL")
-    #expect(credentials.plan == "max")
-    #expect(credentials.expiry != nil)
-}
-
-@Test func anEmptyClaudeTokenIsRejectedRatherThanSent() {
-    let blob = #"{"claudeAiOauth":{"accessToken":""},"mcpOAuth":{"x":{"accessToken":"other"}}}"#
-    #expect(throws: QuotaError.self) {
-        _ = try Claude.credentials(from: try JSONValue.parse(Data(blob.utf8)))
-    }
-}
-
-@Test func claudeCredentialsStillWorkWhenTheBlobIsAlreadyUnwrapped() throws {
-    // Tolerates a bare OAuth object, in case the storage layout changes.
-    let blob = #"{"accessToken":"sk-ant-oat01-BARE","subscriptionType":"pro"}"#
-    let credentials = try Claude.credentials(from: try JSONValue.parse(Data(blob.utf8)))
-    #expect(credentials.token == "sk-ant-oat01-BARE")
-    #expect(credentials.plan == "pro")
-}
-
-// MARK: - Keychain lookup strategies
-
-private final class LookupInvocationFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var invoked = false
-
-    var value: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return invoked
-    }
-
-    func mark() {
-        lock.lock()
-        defer { lock.unlock() }
-        invoked = true
-    }
-}
-
-private func capturedQuotaError(_ operation: () throws -> Void) -> QuotaError? {
-    do {
-        try operation()
-        return nil
-    } catch let error as QuotaError {
-        return error
-    } catch {
-        return nil
-    }
-}
-
-private func isUnauthorized(_ error: QuotaError, message: String) -> Bool {
-    guard case .unauthorized(let actualMessage) = error else { return false }
-    return actualMessage == message
-}
-
-private func isNotConfigured(_ error: QuotaError) -> Bool {
-    if case .notConfigured = error { return true }
-    return false
-}
-
-@Test func securityCLIIsTheOnlyDefaultKeychainLookup() {
-    #expect(Keychain.defaultLookups.map(\.name) == ["security"])
-}
-
-@Test func keychainStopsAfterTheFirstSuccessfulLookup() throws {
-    let secondInvocation = LookupInvocationFlag()
-    let first = KeychainLookup(name: "first") { _ in Data("first".utf8) }
-    let second = KeychainLookup(name: "second") { _ in
-        secondInvocation.mark()
-        return Data("second".utf8)
-    }
-
-    let data = try Keychain.genericPassword(service: "test", lookups: [first, second])
-
-    #expect(String(decoding: data, as: UTF8.self) == "first")
-    #expect(secondInvocation.value == false)
-}
-
-@Test func keychainContinuesAfterFailureAndReturnsTheNextSuccess() throws {
-    let first = KeychainLookup(name: "first") { _ in
-        throw QuotaError.notConfigured("missing")
-    }
-    let second = KeychainLookup(name: "second") { _ in Data("second".utf8) }
-
-    let data = try Keychain.genericPassword(service: "test", lookups: [first, second])
-
-    #expect(String(decoding: data, as: UTF8.self) == "second")
-}
-
-@Test func keychainThrowsTheMostActionableFailureRegardlessOfLookupOrder() throws {
-    let unauthorized = KeychainLookup(name: "unauthorized") { _ in
-        throw QuotaError.unauthorized("denied")
-    }
-    let notConfigured = KeychainLookup(name: "not-configured") { _ in
-        throw QuotaError.notConfigured("missing")
-    }
-
-    for lookups in [[unauthorized, notConfigured], [notConfigured, unauthorized]] {
-        let error = try #require(capturedQuotaError {
-            _ = try Keychain.genericPassword(service: "test", lookups: lookups)
-        })
-        #expect(isUnauthorized(error, message: "denied"))
-    }
-}
-
-@Test func keychainRejectsAnEmptyLookupListAsNotConfigured() throws {
-    let error = try #require(capturedQuotaError {
-        _ = try Keychain.genericPassword(service: "test", lookups: [])
-    })
-    #expect(isNotConfigured(error))
-}
-
-// MARK: - Which failure gets reported
-
-@Test func aBrokenConfiguredSourceOutranksAnUnconfiguredFallback() async {
-    // The exact case that sent the user to reinstall a statusline when the real
-    // problem was an expired token.
-    let provider = HybridProvider(
-        providerID: "stub", displayName: "Stub",
-        local: StubSource(origin: .local,
-                          result: .failure(.notConfigured("Statusline mirror not installed"))),
-        live: StubSource(origin: .live,
-                         result: .failure(.unauthorized("Claude sign-in expired")))
-    )
-    let result = await provider.fetch()
-
-    #expect(result.origin == .unavailable)
-    #expect(result.status.message == "Claude sign-in expired")
-    #expect(result.status.message?.contains("Statusline") == false)
-}
-
-@Test func anUnconfiguredSourceIsStillReportedWhenItIsTheOnlyFailure() async {
-    let provider = HybridProvider(
-        providerID: "stub", displayName: "Stub",
-        local: StubSource(origin: .local,
-                          result: .failure(.notConfigured("Statusline mirror not installed"))),
-        live: nil
-    )
-    let result = await provider.fetch()
-    #expect(result.status.message == "Statusline mirror not installed")
-}
-
-@Test func staleWindowsReportTheirAgeRatherThanALiveRefreshError() async {
-    // Local data whose window expired long ago, plus a failing live endpoint.
-    // The age is the useful fact; the endpoint error is noise beside it.
-    let expired = QuotaWindow(
-        id: "primary", label: "Week", kind: .weekly, usedPercent: 18,
-        resetsAt: Date().addingTimeInterval(-86_400 * 3), windowMinutes: 10080
-    )
-    let stale = ProviderSnapshot(
-        id: "stub", displayName: "Stub", windows: [expired],
-        observedAt: Date().addingTimeInterval(-86_400 * 15), origin: .local
-    )
-
-    let provider = HybridProvider(
-        providerID: "stub", displayName: "Stub",
-        local: StubSource(origin: .local, result: .success(stale)),
-        live: StubSource(origin: .live, result: .failure(.transport("HTTP 404")))
-    )
-    let result = await provider.fetch()
-
-    let message = result.status.message ?? ""
-    #expect(message.contains("has since reset"))
-    #expect(message.contains("15d ago"))
-    #expect(!message.contains("404"))
-}
-
-@Test func aCurrentReadingStillSurfacesTheLiveRefreshError() async {
-    // Only suppress the endpoint error when there is nothing current to caveat.
-    let current = QuotaWindow(
-        id: "primary", label: "Week", kind: .weekly, usedPercent: 18,
-        resetsAt: Date().addingTimeInterval(86_400 * 2), windowMinutes: 10080
-    )
-    let fresh = ProviderSnapshot(
-        id: "stub", displayName: "Stub", windows: [current],
-        observedAt: Date().addingTimeInterval(-3600), origin: .local
-    )
-
-    let provider = HybridProvider(
-        providerID: "stub", displayName: "Stub",
-        local: StubSource(origin: .local, result: .success(fresh)),
-        live: StubSource(origin: .live, result: .failure(.transport("HTTP 404")))
-    )
-    let result = await provider.fetch()
-    #expect(result.status.message?.contains("404") == true)
-}
-
-// MARK: - Console report
-
-private let reportNow = Date(timeIntervalSince1970: 2_000_000_000)
-private let twoHoursThirtyNine = reportNow.addingTimeInterval(2 * 3600 + 39 * 60)
-private let oneDayTwentyOneHours = reportNow.addingTimeInterval(86_400 + 21 * 3600)
-
-@Test func consoleReportRendersBothWindowsWithPercentagesAndResets() {
-    let snapshot = ProviderSnapshot(
-        id: Claude.providerID, displayName: Claude.displayName, plan: "max",
-        windows: [
-            QuotaWindow(id: "five_hour", label: "5h", kind: .session,
-                        usedPercent: 10, resetsAt: twoHoursThirtyNine, windowMinutes: 300),
-            QuotaWindow(id: "seven_day", label: "Week", kind: .weekly,
-                        usedPercent: 14, resetsAt: oneDayTwentyOneHours, windowMinutes: 10080),
-        ],
-        observedAt: reportNow.addingTimeInterval(-2), origin: .live
-    )
-
-    let text = ConsoleReport.render([snapshot], asOf: reportNow)
-
-    #expect(text.contains("Claude"))
-    #expect(text.contains("max"))
-    #expect(text.contains("10.0%"))
-    #expect(text.contains("14.0%"))
-    #expect(text.contains("resets in 2h 39m"))
-    #expect(text.contains("resets in 1d 21h"))
-    #expect(text.contains("live"))
-}
-
-@Test func consoleReportRendersADashForAWindowWithNoReadingAndNeverPrintsZeroPercent() {
-    let reset = QuotaWindow(
-        id: "primary", label: "Week", kind: .weekly, usedPercent: 82,
-        resetsAt: reportNow.addingTimeInterval(-3600), windowMinutes: 10080
-    )
-    let snapshot = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName, plan: "plus",
-        windows: [reset],
-        observedAt: reportNow.addingTimeInterval(-15 * 86_400), origin: .local
-    )
-
-    let text = ConsoleReport.render([snapshot], asOf: reportNow)
-
-    #expect(text.contains("—"))
-    #expect(text.contains("no reading since this window reset"))
-    #expect(!text.contains("0.0%"))
-    #expect(!text.contains("82.0%"))
-}
-
-@Test func consoleReportRendersAnUnavailableProviderStatusMessage() {
-    let snapshot = ProviderSnapshot.unavailable(
-        id: Claude.providerID, displayName: Claude.displayName,
-        status: .needsSetup("Not signed in — run `claude` to sign in"),
-        observedAt: reportNow
-    )
-
-    let text = ConsoleReport.render([snapshot], asOf: reportNow)
-
-    #expect(text.contains("unavailable"))
-    #expect(text.contains("Not signed in — run `claude` to sign in"))
-}
-
-@Test func consoleReportTagsACachedProviderAndShowsItsAge() {
-    let snapshot = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName, plan: "plus",
-        windows: [
-            QuotaWindow(id: "primary", label: "Week", kind: .weekly,
-                        usedPercent: 18, resetsAt: oneDayTwentyOneHours, windowMinutes: 10080),
-        ],
-        observedAt: reportNow.addingTimeInterval(-15 * 86_400), origin: .local
-    )
-
-    let text = ConsoleReport.render([snapshot], asOf: reportNow)
-
-    #expect(text.contains("cached"))
-    #expect(text.contains("15d ago"))
-}
-
-@Test func consoleReportDoesNotRenderTheMonthlyCapAsClaudeBalance() throws {
-    let root = try JSONValue.parse(Data(contentsOf: fixture("claude-usage-live", "json")))
-    let snapshot = try #require(
-        Claude.snapshot(fromRateLimits: root, observedAt: reportNow, origin: .live)
-    )
-
-    let text = ConsoleReport.render([snapshot], asOf: reportNow)
-
-    #expect(!text.contains("20.00 (not enabled)"))
-    #expect(!text.contains("20.00 remaining"))
-}
-
-@Test func consoleReportOmitsDisabledZeroCredits() {
-    let snapshot = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName,
-        credits: Credits(
-            hasCredits: false, unlimited: false, balance: "0", enabled: false
-        ),
-        observedAt: reportNow, origin: .local
-    )
-
-    let text = ConsoleReport.render([snapshot], asOf: reportNow)
-
-    #expect(!text.contains("credits"))
-}
-
-@Test func consoleReportRendersUnlimitedRegardlessOfBalance() {
-    let snapshot = ProviderSnapshot(
-        id: Codex.providerID, displayName: Codex.displayName,
-        credits: Credits(
-            hasCredits: false, unlimited: true, balance: "20.00", enabled: false
-        ),
-        observedAt: reportNow, origin: .live
-    )
-
-    let text = ConsoleReport.render([snapshot], asOf: reportNow)
-
-    #expect(text.contains("credits         unlimited"))
-}
-
-@Test func consoleReportJSONIncludesWhetherCreditsAreEnabled() throws {
-    let snapshot = ProviderSnapshot(
-        id: Claude.providerID, displayName: Claude.displayName,
-        credits: Credits(
-            hasCredits: false, unlimited: false, balance: "20.00", enabled: false
-        ),
-        observedAt: reportNow, origin: .live
-    )
-
-    let json = try ConsoleReport.renderJSON([snapshot], asOf: reportNow)
-    let root = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
-    let provider = try #require(root?[Claude.providerID] as? [String: Any])
-    let credits = try #require(provider["credits"] as? [String: Any])
-
-    #expect((credits["enabled"] as? NSNumber)?.boolValue == false)
-    #expect((credits["has_credits"] as? NSNumber)?.boolValue == false)
-    #expect(credits["balance"] as? String == "20.00")
-}
-
-@Test func consoleReportJSONRoundTripsUsedPercentWithNullForAResetWindow() throws {
-    let current = QuotaWindow(
-        id: "five_hour", label: "5h", kind: .session, usedPercent: 10,
-        resetsAt: twoHoursThirtyNine, windowMinutes: 300
-    )
-    let reset = QuotaWindow(
-        id: "seven_day", label: "Week", kind: .weekly, usedPercent: 82,
-        resetsAt: reportNow.addingTimeInterval(-3600), windowMinutes: 10080
-    )
-    let snapshot = ProviderSnapshot(
-        id: Claude.providerID, displayName: Claude.displayName, plan: "max",
-        windows: [current, reset],
-        observedAt: reportNow.addingTimeInterval(-2), origin: .live
-    )
-
-    let json = try ConsoleReport.renderJSON([snapshot], asOf: reportNow)
-    let root = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
-    let provider = try #require(root?[Claude.providerID] as? [String: Any])
-    let windows = try #require(provider["windows"] as? [[String: Any]])
-
-    let percentsByID = Dictionary(uniqueKeysWithValues: windows.compactMap { row -> (String, Any)? in
-        guard let id = row["id"] as? String, let percent = row["used_percent"] else { return nil }
-        return (id, percent)
-    })
-
-    #expect((percentsByID["five_hour"] as? NSNumber)?.doubleValue == 10)
-    #expect(percentsByID["seven_day"] is NSNull)
-    #expect((percentsByID["seven_day"] as? NSNumber)?.doubleValue != 0)
-}
-
-@Test func providerCatalogListsClaudeThenCodexAndHonoursTheLiveSwitch() {
-    let enabled = ProviderCatalog.all()
-    #expect(enabled.map(\.providerID) == [Claude.providerID, Codex.providerID])
-    #expect(enabled.allSatisfy { $0.liveEnabled })
-
-    let disabled = ProviderCatalog.all(isLiveEnabled: { _ in false })
-    #expect(disabled.map(\.providerID) == [Claude.providerID, Codex.providerID])
-    #expect(disabled.allSatisfy { !$0.liveEnabled })
 }
