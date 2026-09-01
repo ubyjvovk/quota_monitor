@@ -32,6 +32,78 @@ func TestBillingFixtureProducesOneSharedWeeklyWindow(t *testing.T) {
 	assertFixtureWindow(t, provider.Windows)
 }
 
+func TestZeroUsageFixtureProducesAnEmptySharedWeeklyWindow(t *testing.T) {
+	root := fixtureRoot(t, "grok-billing-credits-zero.json")
+	observedAt := time.Date(2026, 9, 1, 15, 12, 0, 0, time.UTC)
+	provider, ok := Snapshot(root, observedAt)
+	if !ok {
+		t.Fatal("Snapshot() found no window")
+	}
+
+	if len(provider.Windows) != 1 {
+		t.Fatalf("windows count = %d, want 1: %#v", len(provider.Windows), provider.Windows)
+	}
+	window := provider.Windows[0]
+	if window.UsedPercent != 0 || window.Label != "Week" || window.Kind != snapshot.KindWeekly {
+		t.Fatalf("window = %#v, want an empty weekly window", window)
+	}
+	if window.WindowMinutes == nil || *window.WindowMinutes != 10080 {
+		t.Fatalf("window minutes = %v, want 10080", window.WindowMinutes)
+	}
+	wantReset := time.Date(2026, 9, 8, 11, 9, 21, 745222000, time.UTC)
+	if window.ResetsAt == nil || !window.ResetsAt.Equal(wantReset) {
+		t.Fatalf("window reset = %v, want %s", window.ResetsAt, wantReset)
+	}
+	if provider.Status.State != "ok" || provider.Origin != snapshot.OriginLive || provider.Credits != nil {
+		t.Fatalf("Snapshot() metadata = %#v", provider)
+	}
+}
+
+func TestSnapshotSumsProductUsageWhenTheSharedPercentageIsAbsent(t *testing.T) {
+	root := fixtureRoot(t, "grok-billing-credits-zero.json")
+	configValue, _ := jsonx.Get(root, "config")
+	config, ok := configValue.(map[string]any)
+	if !ok {
+		t.Fatalf("fixture config = %#v, want an object", configValue)
+	}
+	config["productUsage"] = []any{
+		map[string]any{"product": "GrokBuild", "usagePercent": 57.0},
+		map[string]any{"product": "GrokImagine", "usagePercent": 5.0},
+		map[string]any{"product": "GrokChat", "usagePercent": 1.0},
+	}
+
+	provider, ok := Snapshot(root, time.Now())
+	if !ok {
+		t.Fatal("Snapshot() found no window")
+	}
+	if got := provider.Windows[0].UsedPercent; got != 63 {
+		t.Fatalf("Snapshot().Windows[0].UsedPercent = %v, want 63", got)
+	}
+}
+
+func TestSnapshotRejectsUnrecognisableBillingResponses(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "missing config", body: `{}`},
+		{name: "empty config", body: `{"config":{}}`},
+		{name: "empty current period", body: `{"config":{"currentPeriod":{}}}`},
+		{name: "non-numeric usage percentage", body: `{"config":{"creditUsagePercent":"zero"}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root, err := jsonx.Parse([]byte(test.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if provider, ok := Snapshot(root, time.Now()); ok {
+				t.Fatalf("Snapshot() = %#v, true; want false", provider)
+			}
+		})
+	}
+}
+
 func TestCredentialParserSelectsOnlyTheFirstSortedXAIScope(t *testing.T) {
 	tests := []struct {
 		name      string

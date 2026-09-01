@@ -82,13 +82,45 @@ func Snapshot(root any, observedAt time.Time) (snapshot.Provider, bool) {
 	if !ok {
 		return snapshot.Provider{}, false
 	}
-	usedValue, ok := jsonx.Get(config, "creditUsagePercent")
-	if !ok {
-		return snapshot.Provider{}, false
-	}
-	usedPercent, ok := jsonx.Float(usedValue)
-	if !ok {
-		return snapshot.Provider{}, false
+	usedValue, found := jsonx.Get(config, "creditUsagePercent")
+	var usedPercent float64
+	if found {
+		usedPercent, ok = jsonx.Float(usedValue)
+		if !ok {
+			return snapshot.Provider{}, false
+		}
+	} else {
+		recognisedEnvelope := false
+		for _, field := range []string{"start", "end"} {
+			if value, present := jsonx.Get(config, "currentPeriod", field); present {
+				if _, valid := jsonx.Time(value); valid {
+					recognisedEnvelope = true
+				}
+			}
+		}
+		if value, present := jsonx.Get(config, "currentPeriod", "type"); present {
+			if periodType, valid := jsonx.String(value); valid && periodType != "" {
+				recognisedEnvelope = true
+			}
+		}
+		if !recognisedEnvelope {
+			return snapshot.Provider{}, false
+		}
+
+		// Grok's protobuf-JSON response omits default scalar fields and empty
+		// repeated fields, so an absent percentage in a billing envelope means zero.
+		if value, present := jsonx.Get(config, "productUsage"); present {
+			if productUsage, valid := value.([]any); valid && len(productUsage) > 0 {
+				for _, product := range productUsage {
+					if value, present := jsonx.Get(product, "usagePercent"); present {
+						if usagePercent, valid := jsonx.Float(value); valid {
+							usedPercent += usagePercent
+						}
+					}
+				}
+				usedPercent = min(max(usedPercent, 0), 100)
+			}
+		}
 	}
 
 	var resetsAt *snapshot.Time
