@@ -42,7 +42,44 @@ if ! bash "$ROOT/scripts/check-versions.sh"; then
   exit 1
 fi
 
-tag="v$(cat "$ROOT/VERSION")"
+VERSION="$(cat "$ROOT/VERSION")"
+tag="v$VERSION"
+
+# The plugin must ship the digest of the core it names, and that digest must
+# still describe the release it was taken from. From here a stale pin and a
+# tampered release look identical, so both refuse — including under --dry-run,
+# which is meant to answer "would this publish be sound?".
+pin_file="$ROOT/omarchy/quotamon-$VERSION.sha256"
+if [[ ! -f $pin_file ]]; then
+  echo "Refusing to publish: no digest pin for $VERSION (run scripts/pin-quotamon-digest.sh after the release builds)" >&2
+  exit 1
+fi
+
+extra_pins=""
+for candidate in "$ROOT"/omarchy/quotamon-*.sha256; do
+  if [[ $candidate != "$pin_file" ]]; then
+    extra_pins+=" ${candidate##*/}"
+  fi
+done
+if [[ -n $extra_pins ]]; then
+  echo "Refusing to publish: exactly one digest pin may ship, found extras:$extra_pins" >&2
+  exit 1
+fi
+
+if ! release_sums=$(curl -fsSL "https://github.com/ubyjvovk/quota_monitor/releases/download/$tag/SHA256SUMS"); then
+  echo "Refusing to publish: could not reach release $tag to verify the digest pin" >&2
+  exit 1
+fi
+while read -r digest pinned_asset; do
+  if [[ -z $digest ]]; then
+    continue
+  fi
+  if ! printf '%s\n' "$release_sums" | grep -qE "^$digest[[:space:]]+\\*?$pinned_asset\$"; then
+    echo "Refusing to publish: pinned digest for $pinned_asset does not match release $tag" >&2
+    exit 1
+  fi
+done < "$pin_file"
+
 split_sha=$(git subtree split --prefix=omarchy HEAD)
 
 tag_state=unknown
@@ -57,6 +94,7 @@ fi
 echo "Omarchy subtree: $split_sha"
 echo "Publish target: $target (master)"
 echo "Plugin version: $tag"
+echo "Digest pin: quotamon-$VERSION.sha256 verified against release $tag"
 case $tag_state in
   absent) echo "Tag $tag: will be created" ;;
   present) echo "Tag $tag: already published — master updated only; bump with scripts/set-version.sh to cut a new plugin release" ;;

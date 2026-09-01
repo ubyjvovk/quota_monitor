@@ -38,12 +38,23 @@ omarchy plugin enable ubyjvovk.quotamon
 3. Click **Install quotamon**.
 
 The button runs the fetch script included in the plugin. It downloads the
-binary for the current architecture, verifies it against the release's
-`SHA256SUMS`, installs it in `~/.local/bin`, and runs non-interactive setup when
-there is no config yet. When the installed core is older than the plugin, the
-panel also offers an **Update quotamon** button. Both buttons install the exact
-core version shipped with the plugin rather than whichever release is newest.
-Nothing is ever installed or updated automatically; a person must click.
+binary for the current architecture, verifies its checksum, installs it in
+`~/.local/bin`, and runs non-interactive setup when there is no config yet. When
+the installed core is older than the plugin, the panel also offers an **Update
+quotamon** button. Both buttons install the exact core version shipped with the
+plugin rather than whichever release is newest. Nothing is ever installed or
+updated automatically; a person must click.
+
+The plugin ships the SHA-256 of the core binaries it was released with, as
+`quotamon-<version>.sha256` beside the script, and the Install and Update
+buttons verify the download against **that** — not against a `SHA256SUMS`
+downloaded next to the binary, which comes from the same release and so is
+controlled by whoever controls that release. Swapping a release asset therefore
+fails the check unless the plugin repository is changed too, and that leaves a
+commit in git history where a person can see it. A version the plugin carries no
+digest for is refused rather than guessed: update the plugin so the two versions
+match. Both repositories live under one GitHub account, so this raises the bar —
+it is not a defence against that account being compromised.
 
 To run the same installer manually:
 

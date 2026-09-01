@@ -297,12 +297,22 @@ Two notes:
   `scripts/check-versions.sh` runs in the test suite and fails if the packaged
   version surfaces drift. `scripts/release.sh --next` suggests the next CalVer.
   The release sequence is `scripts/set-version.sh <calver>` → commit the bump →
-  `scripts/release.sh` → `scripts/publish-omarchy-plugin.sh`. The release script
+  `scripts/release.sh` → **wait for the build to publish the release assets** →
+  `scripts/pin-quotamon-digest.sh` → commit the digest sidecar →
+  `scripts/publish-omarchy-plugin.sh`. The release script
   tags the current value as `v<VERSION>` and pushes master plus the tag,
   triggering `.github/workflows/release.yml`, which builds the universal DMG
   plus the standalone `quotamon` binaries and publishes them to the main GitHub
-  Release. The publish script mirrors `omarchy/` to the plugin repository and
-  tags it `v<VERSION>`, which cuts the plugin's own release. Signing and
+  Release. `scripts/pin-quotamon-digest.sh` then writes
+  `omarchy/quotamon-<VERSION>.sha256` from that release's `SHA256SUMS`, so the
+  plugin carries the SHA-256 of the exact core binaries it installs; it never
+  commits, because the two-line diff is meant to be reviewed. The wait is not
+  optional and the ordering is enforced, not remembered:
+  `scripts/publish-omarchy-plugin.sh` refuses to publish unless exactly one
+  sidecar exists, it matches `VERSION`, and its digests still match the live
+  release — and the plugin repository's own workflow re-checks the same thing
+  before cutting a release. The publish script mirrors `omarchy/` to the plugin
+  repository and tags it `v<VERSION>`, which cuts the plugin's own release. Signing and
   notarization switch on automatically when the secrets listed in the main
   workflow are present.
 - **Licence:** MIT; see [`LICENSE`](LICENSE).
