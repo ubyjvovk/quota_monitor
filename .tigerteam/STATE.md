@@ -898,3 +898,35 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   pushes the plugin tag and cuts a plugin release carrying the core's notes.
   The owner then updates the plugin on the Omarchy box and remounts
   (`omarchy restart shell`) before the Update button appears.
+- 2026-09-01 — **2026.9.2 released and published; the Grok fix is now reachable
+  from the Omarchy panel.** Owner ran `scripts/release.sh` (the PM is refused by
+  the auto-mode classifier for remote pushes); master went `cd9fbb7..d61aca1`,
+  ~40 commits — the whole day's work — plus tag `v2026.9.2`. The main run
+  completed **success** with all six assets (universal DMG + four `quotamon`
+  binaries + SHA256SUMS). The PM then ran `publish-omarchy-plugin.sh`:
+  plugin master `c4196b1..7aa3d8e`, new tag `v2026.9.2`, and the plugin's own
+  workflow completed **success**, cutting a release with
+  `quotamon-omarchy-2026.9.2.zip`.
+  - **Ordering held deliberately:** the plugin was published only after the main
+    release existed, because the panel's Update button downloads from
+    `releases/download/v2026.9.2/`. Verified afterwards that the exact URLs the
+    panel will request return **HTTP 200**: `quotamon-linux-arm64` (6,619,296),
+    `quotamon-linux-amd64` (7,217,312), `SHA256SUMS` (453).
+  - Published plugin verified: manifest `version` 2026.9.2, `dependencies.quotamon`
+    still `>=2026.9.1` as designed, and `Panel.qml` carries the Update button.
+- **T-0076 worked, and exposed that the payload is empty.** The plugin release
+  took the with-notes path — the core release's body was fetched and embedded —
+  but the main repo's release body is itself only an auto-generated
+  `**Full Changelog**` link, because `.github/workflows/release.yml` uses
+  `generate_release_notes: true` and nobody writes notes for the core. So the
+  plugin release now reads "Full Changelog" twice and still does not say
+  *"adds Mistral and Together"*, which was the owner's original point. The
+  mechanism is correct; the missing piece is upstream. Options if it matters:
+  hand-write the main release body (edit it on GitHub, or add a CHANGELOG the
+  workflow feeds to `body_path`), which T-0076 will then carry automatically.
+  Not ticketed — owner's call.
+- **Remaining open, owner-side:** update the plugin on the Omarchy box
+  (`omarchy plugin update`, then `omarchy restart shell` — a mounted bar icon
+  keeps the old instance) to get manifest 2026.9.2 and the Update button, then
+  click it. Also still outstanding from the CalVer wave: the 5-second eyeball on
+  the macOS About panel.
