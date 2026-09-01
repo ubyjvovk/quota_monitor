@@ -23,10 +23,14 @@ echo "==> Stopping any running instance"
 pkill -f "Quota Monitor.app" 2>/dev/null || true
 sleep 1
 
-# Local builds stamp the same {major}.{commit count} version release.sh tags, so
-# the About box shows a real version instead of project.yml's 0.1.0.
-MAJOR=0
-VERSION="${MAJOR}.$(git rev-list --count HEAD)"
+# Local builds stamp the CalVer from VERSION, the same value release.sh tags.
+[ -f "$ROOT/VERSION" ] || {
+  echo "error: VERSION file is missing; run scripts/set-version.sh <YYYY.M.MICRO>" >&2
+  exit 1; }
+VERSION="$(cat "$ROOT/VERSION")"
+[ -n "$VERSION" ] || {
+  echo "error: VERSION file is empty; run scripts/set-version.sh <YYYY.M.MICRO>" >&2
+  exit 1; }
 
 APP="$ROOT/build/Build/Products/Debug/Quota Monitor.app"
 

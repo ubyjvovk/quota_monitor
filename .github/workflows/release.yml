@@ -33,18 +33,29 @@ jobs:
     env:
       HAS_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify tagged version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            file_version="$(cat VERSION)"
+            if [ "$tag_version" != "$file_version" ]; then
+              echo "error: tag version $tag_version does not match VERSION $file_version" >&2
+              exit 1
+            fi
+          fi
+
       # VERSION is the tag without the leading "v" (so the DMG is
-      # Quota-Monitor-0.2.0-universal.dmg); a workflow_dispatch run has no tag,
-      # so it falls back to a dev version.
+      # Quota-Monitor-2026.9.1-universal.dmg); a workflow_dispatch run has no
+      # tag, so it uses the checked-out VERSION file.
       - name: Compute version
         run: |
           case "$GITHUB_REF" in
             refs/tags/v*) echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV" ;;
-            *) echo "VERSION=0.0.0-dev" >> "$GITHUB_ENV" ;;
+            *) echo "VERSION=$(cat VERSION)" >> "$GITHUB_ENV" ;;
           esac
-
-      - name: Checkout
-        uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5

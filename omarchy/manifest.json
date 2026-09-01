@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "quotamon",
   "name": "Quota Monitor",
-  "version": "1.0.0",
+  "version": "2026.9.1",
   "author": "ubyjvovk",
   "description": "LLM quota from quotamon: stacked-bar icon and dropdown",
   "kinds": ["bar-widget"],

@@ -15,6 +15,9 @@ export QUOTA_MONITOR_DIR
 
 rc=0
 
+echo "### version consistency"
+bash scripts/check-versions.sh || rc=1
+
 echo "### swift test (QuotaKit)"
 # --disable-sandbox: SwiftPM nests its own sandbox-exec, which macOS refuses
 # inside the worker Seatbelt profile.

@@ -1,19 +1,33 @@
 #!/usr/bin/env bash
 #
-# Cut and push a release tag. Versions are {major}.{commit count on master}
-# (e.g. v0.264); the tag feeds .github/workflows/release.yml, which strips the
-# leading v and uses the rest verbatim.
+# Cut and push a release tag using CalVer YYYY.M.MICRO from VERSION. The tag
+# feeds .github/workflows/release.yml, which strips the leading v and uses the
+# rest verbatim.
 #
 #   ./scripts/release.sh            cut + push the next release
 #   ./scripts/release.sh --dry-run  print what the tag would be, do nothing
+#   ./scripts/release.sh --next     suggest this month's next CalVer, do nothing
 
 set -euo pipefail
 
-# MAJOR is bumped by hand on breaking rewrites; the minor is the commit count.
-MAJOR=0
+if [ "${1:-}" = "--next" ]; then
+  YEAR="$(date +%Y)"
+  MONTH="$(date +%m)"
+  MONTH="${MONTH#0}"
+  HIGHEST=0
+  while IFS= read -r existing_tag; do
+    micro="${existing_tag#v${YEAR}.${MONTH}.}"
+    [[ "$micro" =~ ^[0-9]+$ ]] || continue
+    micro=$((10#$micro))
+    if (( micro > HIGHEST )); then
+      HIGHEST="$micro"
+    fi
+  done < <(git tag --list "v${YEAR}.${MONTH}.*")
+  echo "${YEAR}.${MONTH}.$((HIGHEST + 1))"
+  exit 0
+fi
 
-COUNTS="$(git rev-list --count HEAD)"
-TAG="v${MAJOR}.${COUNTS}"
+TAG="v$(cat VERSION)"
 
 # --dry-run prints the would-be tag only; it is allowed from any branch so
 # agents can preview it, but it still refuses a dirty tree (a real dry run
@@ -35,7 +49,7 @@ fi
   echo "error: uncommitted tracked changes present; commit or stash before cutting a release" >&2
   exit 1; }
 git rev-parse "$TAG" >/dev/null 2>&1 && {
-  echo "error: tag $TAG already exists" >&2
+  echo "error: tag $TAG already exists; run scripts/set-version.sh <next version> and commit" >&2
   exit 1; }
 
 echo "==> Tagging $TAG"
