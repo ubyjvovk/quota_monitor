@@ -31,6 +31,33 @@ jobs:
             fi
           fi
 
+      - name: Verify digest pin
+        if: github.event_name == 'push'
+        run: |
+          # Second line of defense behind scripts/publish-omarchy-plugin.sh. The
+          # plugin's whole checksum guarantee is the sidecar it ships, so a
+          # release whose pin cannot be checked against the core release must
+          # not be cut: unlike the core release notes fetch below, every problem
+          # here fails the job. The sums land in RUNNER_TEMP so the packaged zip
+          # never picks them up.
+          VERSION="${GITHUB_REF_NAME#v}"
+          pin_file="quotamon-${VERSION}.sha256"
+          if [ ! -f "$pin_file" ]; then
+            echo "error: plugin carries no digest pin $pin_file" >&2
+            exit 1
+          fi
+          curl -fsSL \
+            "https://github.com/ubyjvovk/quota_monitor/releases/download/v${VERSION}/SHA256SUMS" \
+            -o "${RUNNER_TEMP}/core-sha256sums.txt"
+          while read -r digest asset; do
+            [ -n "$digest" ] || continue
+            if ! grep -qE "^${digest}[[:space:]]+\*?${asset}$" "${RUNNER_TEMP}/core-sha256sums.txt"; then
+              echo "error: pinned digest for $asset does not match release v${VERSION}" >&2
+              exit 1
+            fi
+          done < "$pin_file"
+          echo "Digest pin $pin_file verified against release v${VERSION}"
+
       - name: Package
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then

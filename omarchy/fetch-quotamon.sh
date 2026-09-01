@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Install or update quotamon from the main repository's GitHub release, then
-# bootstrap its config. The panel runs this only when Install is clicked; it is
+# bootstrap its config. When a version is requested, the download is verified
+# against the digest this plugin was released with — quotamon-<version>.sha256
+# beside this script — and never against a checksum file fetched from the same
+# release as the binary. The panel runs this only when Install is clicked; it is
 # also safe to invoke by hand and never runs unattended.
 
 set -euo pipefail
@@ -25,6 +28,22 @@ if [[ -n $version && -n ${QUOTAMON_RELEASE_BASE:-} ]]; then
   echo "refusing to install: QUOTAMON_RELEASE_BASE is set but version $version was requested" >&2
   echo "unset QUOTAMON_RELEASE_BASE, or call without a version to use it" >&2
   exit 2
+fi
+
+# The plugin ships the SHA-256 of the exact core binaries it was released with.
+# A checksum downloaded beside the binary proves only that the transfer was
+# clean — both files come from one release, so one compromised release forges
+# both. The sidecar lives in reviewed plugin code instead, which is why a
+# version we carry no digest for is refused rather than installed unverified.
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+pin_file=""
+if [[ -n $version ]]; then
+  pin_file="$script_dir/quotamon-$version.sha256"
+  if [[ ! -f $pin_file ]]; then
+    echo "refusing to install: this plugin carries no digest for quotamon $version ($pin_file)" >&2
+    echo "the plugin and the core version must match; update the plugin, or run without a version to install latest unverified-by-pin" >&2
+    exit 2
+  fi
 fi
 
 # An explicit pin wins; the override applies only when no version was given.
@@ -63,15 +82,27 @@ tmp_dir=$(mktemp -d)
 trap 'rm -rf -- "$tmp_dir"' EXIT
 
 # Download into an isolated directory. Nothing under the install prefix is
-# touched until both files arrive and the selected asset verifies successfully.
-echo "Fetching quotamon ${version:-latest} from $release_base"
+# touched until everything arrives and the selected asset verifies successfully.
+if [[ -z $pin_file ]]; then
+  echo "warning: installing latest without a plugin digest pin; the checksum comes from the same release as the binary"
+fi
+echo "Fetching quotamon ${version:-latest} from $release_base${pin_file:+ (pinned)}"
 curl -fsSL "$release_base/$asset" -o "$tmp_dir/$asset"
-curl -fsSL "$release_base/SHA256SUMS" -o "$tmp_dir/SHA256SUMS"
+
+# With a pin the release's own SHA256SUMS is never fetched: in the threat model
+# where the release itself is compromised that file is attacker-controlled and
+# adds nothing. Without a pin it is the only checksum there is.
+if [[ -n $pin_file ]]; then
+  sums_file=$pin_file
+else
+  curl -fsSL "$release_base/SHA256SUMS" -o "$tmp_dir/SHA256SUMS"
+  sums_file="$tmp_dir/SHA256SUMS"
+fi
 
 # Verify only the exact release filename. A missing checksum is just as unsafe
 # as a mismatch, so either condition aborts before an install staging file exists.
-checksum_line=$(grep -E "^[[:xdigit:]]{64}[[:space:]]+\\*?$asset$" "$tmp_dir/SHA256SUMS") || {
-  echo "SHA256SUMS has no checksum for $asset; quotamon was not installed" >&2
+checksum_line=$(grep -E "^[[:xdigit:]]{64}[[:space:]]+\\*?$asset$" "$sums_file") || {
+  echo "${sums_file##*/} has no checksum for $asset; quotamon was not installed" >&2
   exit 1
 }
 (
