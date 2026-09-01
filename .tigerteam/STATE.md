@@ -652,3 +652,39 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   Hyprland is unproven.
 - **NOT pushed and NOT tagged.** `scripts/release.sh` was only ever read and
   `--dry-run`/`--next` exercised; cutting `v2026.9.1` is the owner's call.
+- 2026-09-01 — **T-0070 accepted (`bcdfe8c`): the omarchy publish path now cuts
+  releases.** Found while the owner asked why the plugin repo showed no release
+  and a version-1 manifest. Confirmed against the GitHub API:
+  `ubyjvovk/quotamon-omarchy` had **0 tags, 0 releases**, `master` at `1c076f6`
+  (the T-0061 subtree split, 2026-08-31T19:42Z), publishing
+  `"id": "quotamon"` / `"version": "1.0.0"` — i.e. every omarchy change from
+  T-0062..T-0069 was unpublished, and the published README's own
+  `omarchy plugin enable ubyjvovk.quotamon` line did not match the published
+  manifest id. The main repo was fine (`v2026.9.1` released by Actions).
+  Immediate cause: `publish-omarchy-plugin.sh` was never re-run after the wave.
+  Structural cause: it was a bare split + force-push — no tag, no release, no
+  version gate, and nothing in the documented release path mentioned it.
+  Landed: the script resolves `ROOT`, runs `check-versions.sh` as a drift gate,
+  probes the remote for `v<VERSION>` (a failed probe degrades to `unknown` and
+  never fails the run, so sandboxed lanes can still `--dry-run`), reports the
+  tag state, and pushes the tag **only when absent** — a published tag is never
+  moved, so it keeps meaning the bytes it meant. New
+  `omarchy/.github/workflows/release.yml` rides the subtree split into the
+  plugin repo root, where a `v*` tag verifies itself against `manifest.json`,
+  zips the plugin and cuts a release; it is inert here because GitHub only reads
+  root workflows. `README.md` now documents one four-step sequence:
+  `set-version.sh` → commit → `release.sh` → `publish-omarchy-plugin.sh`.
+- **PM verification for T-0070** (beyond the worker's report, which ran under a
+  sandbox with no network and so could only ever see `unknown`): confirmed the
+  `#contributing--for-agents` anchor resolves to a real heading; proved by
+  experiment that `zip -r … -x '.git/*' '.github/*'` emits **no** `.git/` or
+  `.github/` directory entries, so an unzipped asset is not a broken git repo;
+  re-ran the workflow's `sed` against the real manifest (`2026.9.1`); and ran
+  the accepted script on master with real credentials —
+  `Tag v2026.9.1: will be created`, exit 0, split `88136ca` (byte-identical to
+  the worker's split sha). The remote probe therefore works in production, not
+  just in the degraded path.
+- **STILL NOT PUBLISHED.** `scripts/publish-omarchy-plugin.sh` has only ever
+  been run with `--dry-run`. The plugin repo remains at the T-0061 split with a
+  `1.0.0` manifest until the owner approves the real run (a force-push to
+  `quotamon-omarchy` plus the `v2026.9.1` tag that cuts its first release).
