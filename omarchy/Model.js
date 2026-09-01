@@ -57,11 +57,20 @@ function pinnedVersion(manifest) {
   return /^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$/.test(version) ? version : ""
 }
 
-// An update is offered only when both locally reported versions are comparable.
+// An update is offered for a release core that is behind the manifest pin. Note
+// the asymmetry between an *absent* version and an *unparseable* one — they must
+// not collapse into one branch. A non-null snapshot without a `version` key
+// predates the 2026.9.1 key, i.e. it is an old release worth offering an update
+// for; a version that is present but unparseable, like "dev", is a deliberate
+// local build that must never be nagged to overwrite itself. No snapshot at all
+// (null/undefined) is the Install button's territory, not ours.
 function coreUpdateVersion(manifest, snapshot) {
   var version = pinnedVersion(manifest)
+  if (version === "") return ""
   var core = coreVersion(snapshot)
-  if (version === "" || core === "") return ""
+  if (core === "") {
+    return snapshot && typeof snapshot === "object" ? version : ""
+  }
   var comparison = compareVersions(core, version)
   return comparison !== null && comparison < 0 ? version : ""
 }
