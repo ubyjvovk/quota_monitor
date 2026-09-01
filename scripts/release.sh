@@ -10,6 +10,9 @@
 
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
 if [ "${1:-}" = "--next" ]; then
   YEAR="$(date +%Y)"
   MONTH="$(date +%m)"
@@ -27,7 +30,7 @@ if [ "${1:-}" = "--next" ]; then
   exit 0
 fi
 
-TAG="v$(cat VERSION)"
+TAG="v$(cat "$ROOT/VERSION")"
 
 # --dry-run prints the would-be tag only; it is allowed from any branch so
 # agents can preview it, but it still refuses a dirty tree (a real dry run
