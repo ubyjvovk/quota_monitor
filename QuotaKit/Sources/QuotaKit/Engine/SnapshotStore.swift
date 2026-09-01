@@ -49,7 +49,7 @@ public struct QuotaSettings: Codable, Hashable, Sendable {
 
     public init(
         refreshInterval: TimeInterval = 300,
-        liveEnabled: [String: Bool] = [Claude.providerID: true, Codex.providerID: true]
+        liveEnabled: [String: Bool] = ["claude": true, "codex": true]
     ) {
         self.refreshInterval = refreshInterval
         self.liveEnabled = liveEnabled
