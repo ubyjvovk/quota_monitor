@@ -1,17 +1,22 @@
 {
   "schemaVersion": 1,
-  "id": "quotamon",
+  "id": "ubyjvovk.quotamon",
   "name": "Quota Monitor",
   "version": "2026.9.1",
   "author": "ubyjvovk",
-  "description": "LLM quota from quotamon: stacked-bar icon and dropdown",
+  "license": "MIT",
+  "description": "How much of your LLM subscription quota is left — Claude, ChatGPT, Grok, Kimi, DeepSeek, DeepInfra, OpenRouter and RunInfra — as one stacked bar icon with a click-through panel.",
+  "dependencies": {
+    "quotamon": ">=2026.9.1",
+    "commands": ["curl", "shasum"]
+  },
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
     "displayName": "Quota Monitor",
-    "description": "quotamon snapshot: stacked per-provider bars, windows, credits, and a refresh button",
+    "description": "Stacked usage bars, one per provider, filled to that provider's tightest quota window and coloured by severity. Click for windows, credits, reset countdowns, and a Refresh button.",
     "category": "AI",
     "allowMultiple": false,
     "defaultSection": "center",

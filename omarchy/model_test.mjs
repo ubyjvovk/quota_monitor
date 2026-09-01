@@ -5,6 +5,11 @@ const modelSource = readFileSync(new URL("Model.js", import.meta.url), "utf8")
 const Model = new Function(`${modelSource}
 return {
   parseSnapshot,
+  parseManifest,
+  compareVersions,
+  coreVersion,
+  aboutText,
+  versionWarning,
   formatCountdown,
   formatAge,
   sortedWindows,
@@ -18,6 +23,52 @@ return {
 const now = Date.parse("2026-01-02T00:00:00Z")
 const after = milliseconds => new Date(now + milliseconds).toISOString()
 const before = milliseconds => new Date(now - milliseconds).toISOString()
+
+const manifestRaw = readFileSync(new URL("manifest.json", import.meta.url), "utf8")
+const manifest = Model.parseManifest(manifestRaw)
+assert.deepEqual(manifest, { version: "2026.9.1", minQuotamon: "2026.9.1" })
+assert.deepEqual(Model.parseManifest("{"), { version: "", minQuotamon: "" })
+assert.deepEqual(Model.parseManifest('{"version":"2026.9.1"}'), {
+  version: "2026.9.1",
+  minQuotamon: ""
+})
+assert.deepEqual(Model.parseManifest('{"dependencies":{"quotamon":">=2026.9.1"}}'), {
+  version: "",
+  minQuotamon: ""
+})
+
+assert.equal(Model.compareVersions("2026.9.1", "2026.9.2"), -1)
+assert.equal(Model.compareVersions("2026.10.1", "2026.9.9"), 1)
+assert.equal(Model.compareVersions("2026.9", "2026.9.0"), 0)
+assert.equal(Model.compareVersions("dev", "2026.9.1"), null)
+
+assert.equal(Model.coreVersion({ version: " 2026.9.1 " }), "2026.9.1")
+assert.equal(Model.coreVersion({ providers: [] }), "")
+assert.equal(Model.coreVersion(null), "")
+
+assert.equal(
+  Model.aboutText(manifest, { version: "2026.9.1" }),
+  "Quota Monitor 2026.9.1 · quotamon 2026.9.1"
+)
+assert.equal(
+  Model.aboutText(manifest, null),
+  "Quota Monitor 2026.9.1 · quotamon version unknown"
+)
+assert.equal(Model.aboutText({ version: "", minQuotamon: "" }, { version: "2026.9.1" }), "")
+
+assert.equal(Model.versionWarning(manifest, null), "")
+assert.equal(
+  Model.versionWarning(manifest, { providers: [] }),
+  "quotamon is older than this plugin needs (2026.9.1) — update it and press Refresh"
+)
+assert.equal(
+  Model.versionWarning(manifest, { version: "2026.8.3" }),
+  "quotamon 2026.8.3 is older than this plugin needs (2026.9.1) — update it and press Refresh"
+)
+assert.equal(Model.versionWarning(manifest, { version: "2026.9.1" }), "")
+assert.equal(Model.versionWarning(manifest, { version: "2026.10.0" }), "")
+assert.equal(Model.versionWarning(manifest, { version: "dev" }), "")
+assert.equal(Model.versionWarning({ version: "2026.9.1", minQuotamon: "" }, {}), "")
 
 assert.equal(Model.formatCountdown(after(40 * 60 * 60 * 1000), now), "resets in 1d 16h")
 assert.equal(Model.formatCountdown(after(2 * 60 * 60 * 1000 + 7 * 60 * 1000), now), "resets in 2h 7m")

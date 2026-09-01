@@ -17,6 +17,7 @@ order (top bar = first row), matching the macOS glyph.
 
 ```bash
 omarchy plugin add https://github.com/ubyjvovk/quotamon-omarchy
+omarchy plugin enable ubyjvovk.quotamon
 ```
 
 2. Click the Quota Monitor icon to open its panel.
@@ -30,7 +31,7 @@ there is no config yet. It never runs automatically.
 To run the same installer manually:
 
 ```bash
-bash ~/.config/omarchy/plugins/quotamon/fetch-quotamon.sh
+bash ~/.config/omarchy/plugins/ubyjvovk.quotamon/fetch-quotamon.sh
 ```
 
 As a by-hand fallback, download `quotamon-linux-amd64` or
@@ -39,7 +40,22 @@ verify the checksum, make the binary executable, and run `quotamon setup`.
 `quotamon` must be on `PATH`; if it is not, set the widget's `exec` setting to
 the binary's absolute path.
 
-File saves under `~/.config/omarchy/plugins/` hot-reload plugin *code*,
+The manifest declares the minimum `quotamon` version and the installer commands
+for humans:
+
+```json
+"dependencies": {
+  "quotamon": ">=2026.9.1",
+  "commands": ["curl", "shasum"]
+}
+```
+
+Omarchy ignores this informational block. The panel enforces the `quotamon`
+minimum itself: its footer shows the Quota Monitor plugin version beside the
+version reported by `quotamon`, and displays an update warning when that binary
+is too old.
+
+File saves under `~/.config/omarchy/plugins/ubyjvovk.quotamon/` hot-reload plugin *code*,
 but a bar icon that is already mounted often keeps the old instance.
 Remount with `omarchy restart shell`.
 

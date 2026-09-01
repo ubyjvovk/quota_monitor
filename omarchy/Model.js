@@ -9,6 +9,68 @@ function parseSnapshot(raw) {
   }
 }
 
+function parseManifest(raw) {
+  var empty = { version: "", minQuotamon: "" }
+  try {
+    var data = JSON.parse(String(raw || ""))
+    if (!data || typeof data !== "object" || typeof data.version !== "string") return empty
+    var version = data.version.trim()
+    if (version === "") return empty
+    var requirement = data.dependencies && data.dependencies.quotamon
+    var minQuotamon = typeof requirement === "string" ? requirement.trim() : ""
+    if (minQuotamon.slice(0, 2) === ">=") minQuotamon = minQuotamon.slice(2).trim()
+    else if (minQuotamon !== "") minQuotamon = ""
+    return { version: version, minQuotamon: minQuotamon }
+  } catch (e) {
+    return empty
+  }
+}
+
+function compareVersions(a, b) {
+  if (!a || !b) return null
+  var left = String(a).split(".")
+  var right = String(b).split(".")
+  for (var i = 0; i < left.length; i++) {
+    if (!/^\d+$/.test(left[i])) return null
+  }
+  for (var j = 0; j < right.length; j++) {
+    if (!/^\d+$/.test(right[j])) return null
+  }
+  var length = Math.max(left.length, right.length)
+  for (var k = 0; k < length; k++) {
+    var leftSegment = k < left.length ? Number(left[k]) : 0
+    var rightSegment = k < right.length ? Number(right[k]) : 0
+    if (leftSegment < rightSegment) return -1
+    if (leftSegment > rightSegment) return 1
+  }
+  return 0
+}
+
+function coreVersion(snapshot) {
+  if (!snapshot || snapshot.version === null || snapshot.version === undefined) return ""
+  return String(snapshot.version).trim()
+}
+
+function aboutText(manifest, snapshot) {
+  var version = manifest && manifest.version ? String(manifest.version).trim() : ""
+  if (version === "") return ""
+  var core = coreVersion(snapshot)
+  return "Quota Monitor " + version + " · quotamon " + (core || "version unknown")
+}
+
+function versionWarning(manifest, snapshot) {
+  if (snapshot === null || snapshot === undefined) return ""
+  var minimum = manifest && manifest.minQuotamon ? String(manifest.minQuotamon).trim() : ""
+  if (minimum === "") return ""
+  var core = coreVersion(snapshot)
+  if (core === "") {
+    return "quotamon is older than this plugin needs (" + minimum + ") — update it and press Refresh"
+  }
+  var comparison = compareVersions(core, minimum)
+  if (comparison === null || comparison >= 0) return ""
+  return "quotamon " + core + " is older than this plugin needs (" + minimum + ") — update it and press Refresh"
+}
+
 function currentUsedPercent(window, nowMs) {
   if (!window) return null
   if (window.resetsAt) {
