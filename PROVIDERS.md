@@ -203,7 +203,8 @@ x-grok-client-mode: grok-build
 Accept: application/json
 ```
 
-Verified **200**. Fixture: `grok-billing-credits.json`.
+Verified **200**. Fixtures: `grok-billing-credits.json` and
+`grok-billing-credits-zero.json`.
 
 Finding this took real work — record it so nobody repeats it. The host
 `cli-chat-proxy.grok.com` came from `~/.grok/logs/unified.jsonl`; the
@@ -224,6 +225,11 @@ Dead ends: `grok.com/rest/billing`, `/rest/billing/credits`,
                 {"product":"GrokImagine","usagePercent":5.0},
                 {"product":"GrokChat","usagePercent":1.0}]
 ```
+
+At zero usage the endpoint still returns 200, but its protobuf-JSON response
+omits both `creditUsagePercent` and `productUsage` entirely. In that recognised
+billing envelope, absence means zero usage and must never be treated as a
+malformed response; see `grok-billing-credits-zero.json`.
 
 **`productUsage` is a breakdown of one shared pool** (57 + 5 + 1 ≈ 63), not
 three independent allowances. Rendering each as its own quota window would tell
