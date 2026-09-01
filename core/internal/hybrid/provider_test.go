@@ -117,21 +117,78 @@ func TestFetchTreatsAResultWithoutWindowsOrCreditsAsNothing(t *testing.T) {
 	}
 }
 
-func TestFetchReportsRolloverAheadOfALiveFailure(t *testing.T) {
+func TestFetchReportsALiveFailureAfterCachedWindowRollover(t *testing.T) {
 	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
-	local := providerWithWindow(snapshot.OriginLocal, now.Add(-time.Minute), 18)
-	local.ObservedAt = snapshot.Time{Time: now.Add(-2 * time.Hour)}
+	store := cache.Store{Dir: t.TempDir()}
+	cached := providerWithWindow(snapshot.OriginLive, now.Add(-time.Minute), 18)
+	cached.ObservedAt = snapshot.Time{Time: now.Add(-2 * time.Hour)}
+	if err := store.Save(cached); err != nil {
+		t.Fatal(err)
+	}
 
 	got := (hybrid.Provider{
 		ID: "test", DisplayName: "Test",
-		Local:       localSource(local),
 		Live:        stubSource{origin: snapshot.OriginLive, err: source.Errorf(source.Transport, "endpoint unavailable")},
 		LiveEnabled: true,
+		Cache:       &store,
+		Now:         func() time.Time { return now },
+	}).Fetch(context.Background())
+
+	// The rollover context must no longer truncate the actionable live failure.
+	if got.Status.State != "needsSetup" || got.Status.Message != "Last reading 2h ago; its window has since reset — live refresh failed: endpoint unavailable" {
+		t.Fatalf("Fetch().Status = %#v", got.Status)
+	}
+}
+
+func TestFetchKeepsTheCachedWindowRolloverMessageWhenThereIsNoFailure(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	store := cache.Store{Dir: t.TempDir()}
+	cached := providerWithWindow(snapshot.OriginLive, now.Add(-time.Minute), 18)
+	cached.ObservedAt = snapshot.Time{Time: now.Add(-2 * time.Hour)}
+	if err := store.Save(cached); err != nil {
+		t.Fatal(err)
+	}
+	empty := snapshot.Provider{
+		ID: "test", DisplayName: "Test", ObservedAt: snapshot.Time{Time: now},
+		Origin: snapshot.OriginLive, Status: snapshot.OK(),
+	}
+
+	got := (hybrid.Provider{
+		ID: "test", DisplayName: "Test",
+		Live:        liveSource(empty),
+		LiveEnabled: true,
+		Cache:       &store,
 		Now:         func() time.Time { return now },
 	}).Fetch(context.Background())
 
 	if got.Status.State != "needsSetup" || got.Status.Message != "Last reading 2h ago; its window has since reset" {
 		t.Fatalf("Fetch().Status = %#v", got.Status)
+	}
+}
+
+func TestFetchPrefersARefreshFailureAfterCachedWindowRollover(t *testing.T) {
+	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	store := cache.Store{Dir: t.TempDir()}
+	cached := providerWithWindow(snapshot.OriginLive, now.Add(-time.Minute), 18)
+	cached.ObservedAt = snapshot.Time{Time: now.Add(-2 * time.Hour)}
+	if err := store.Save(cached); err != nil {
+		t.Fatal(err)
+	}
+
+	got := (hybrid.Provider{
+		ID: "test", DisplayName: "Test",
+		Live:        stubSource{origin: snapshot.OriginLive, err: source.Errorf(source.Transport, "endpoint unavailable")},
+		LiveEnabled: true,
+		Cache:       &store,
+		TokenStale:  func(time.Time) bool { return true },
+		Refresh:     func(context.Context) error { return errors.New("pty unavailable") },
+		RefreshHint: "testctl",
+		Now:         func() time.Time { return now },
+	}).Fetch(context.Background())
+
+	want := "Last reading 2h ago; its window has since reset — Test sign-in is stale — open `testctl` to refresh it (auto-refresh failed: pty unavailable)"
+	if got.Status.State != "needsSetup" || got.Status.Message != want {
+		t.Fatalf("Fetch().Status = %#v, want message %q", got.Status, want)
 	}
 }
 
@@ -271,39 +328,60 @@ func TestCachePolicy(t *testing.T) {
 	}
 }
 
-func TestRefreshFailureReturnsTheCachedReadingWithAKimiAction(t *testing.T) {
+func TestPreFetchFormatsRefreshFailureWithAndWithoutAHint(t *testing.T) {
 	now := time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
-	store := cache.Store{Dir: t.TempDir()}
-	cached := providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 18)
-	cached.ObservedAt = snapshot.Time{Time: now.Add(-6 * time.Hour)}
-	if err := store.Save(cached); err != nil {
-		t.Fatal(err)
-	}
-	var liveCalls atomic.Int32
-	var refreshCalls atomic.Int32
-
-	got := (hybrid.Provider{
-		ID: "test", DisplayName: "Kimi",
-		Live:           stubSource{origin: snapshot.OriginLive, err: source.Errorf(source.Unauthorized, "stale token rejected"), calls: &liveCalls},
-		LiveEnabled:    true,
-		Cache:          &store,
-		ShortestWindow: 5 * time.Hour,
-		TokenStale:     func(time.Time) bool { return true },
-		Refresh: func(context.Context) error {
-			refreshCalls.Add(1)
-			return errors.New("pty unavailable")
+	tests := []struct {
+		name        string
+		refreshHint string
+		wantMessage string
+	}{
+		{
+			name:        "hint names the provider CLI",
+			refreshHint: "kimi",
+			wantMessage: "Cached 6h ago — Kimi sign-in is stale — open `kimi` to refresh it (auto-refresh failed: pty unavailable)",
 		},
-		Now: func() time.Time { return now },
-	}).Fetch(context.Background())
+		{
+			name:        "missing hint gives a complete generic remedy",
+			wantMessage: "Cached 6h ago — Kimi sign-in is stale and could not be refreshed automatically: pty unavailable",
+		},
+	}
 
-	if got.Origin != snapshot.OriginLocal || got.Windows[0].UsedPercent != 18 || got.Status.State != "needsSetup" {
-		t.Fatalf("Fetch() = %#v, want cached reading with needsSetup", got)
-	}
-	if !strings.Contains(got.Status.Message, "open `kimi`") || !strings.Contains(got.Status.Message, "pty unavailable") {
-		t.Fatalf("Fetch().Status.Message = %q, want Kimi action and refresh error", got.Status.Message)
-	}
-	if refreshCalls.Load() != 1 || liveCalls.Load() != 1 {
-		t.Fatalf("refresh/live calls = %d/%d, want 1/1", refreshCalls.Load(), liveCalls.Load())
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := cache.Store{Dir: t.TempDir()}
+			cached := providerWithWindow(snapshot.OriginLive, now.Add(time.Hour), 18)
+			cached.ObservedAt = snapshot.Time{Time: now.Add(-6 * time.Hour)}
+			if err := store.Save(cached); err != nil {
+				t.Fatal(err)
+			}
+			var liveCalls atomic.Int32
+			var refreshCalls atomic.Int32
+
+			provider := hybrid.Provider{
+				ID: "test", DisplayName: "Kimi",
+				Live:           stubSource{origin: snapshot.OriginLive, err: source.Errorf(source.Unauthorized, "stale token rejected"), calls: &liveCalls},
+				LiveEnabled:    true,
+				Cache:          &store,
+				ShortestWindow: 5 * time.Hour,
+				TokenStale:     func(time.Time) bool { return true },
+				Refresh: func(context.Context) error {
+					refreshCalls.Add(1)
+					return errors.New("pty unavailable")
+				},
+				RefreshHint: test.refreshHint,
+				Now:         func() time.Time { return now },
+			}
+
+			prepared := provider.PreFetch(context.Background())
+			got := prepared.Fetch(context.Background())
+
+			if got.Origin != snapshot.OriginLocal || got.Windows[0].UsedPercent != 18 || got.Status.State != "needsSetup" || got.Status.Message != test.wantMessage {
+				t.Fatalf("Prepared.Fetch() = %#v, want cached reading with message %q", got, test.wantMessage)
+			}
+			if refreshCalls.Load() != 1 || liveCalls.Load() != 1 {
+				t.Fatalf("refresh/live calls = %d/%d, want 1/1", refreshCalls.Load(), liveCalls.Load())
+			}
+		})
 	}
 }
 
