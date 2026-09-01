@@ -806,3 +806,52 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   copy. Accept refused ("ticket is in todo/, expected review/") rather than
   doing anything wrong, and re-running from the repo root worked. **Always `cd`
   back to the board root before any board mutation.**
+- 2026-09-01 — **T-0075 accepted: the panel can update the core without a
+  terminal, and the installer is genuinely pinned.** Owner asked for an in-panel
+  re-fetch and assumed the download was already pinned "for security reasons".
+  It was not: `fetch-quotamon.sh` pulled `releases/latest/download`, verified
+  against the `SHA256SUMS` of that same release — which catches a corrupted or
+  substituted download but pins no version, so the panel could install a core
+  the plugin had never been tested against. Meanwhile `versionWarning` already
+  detected a stale core and advised "update it and press Refresh" with **no
+  button to do it** (the Install button is `visible: rows.length === 0`, so it
+  hides exactly when an old-but-working core is reporting numbers).
+  Landed: the script takes an optional CalVer argument, validates it against
+  `^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$` **before** any temp dir, network call or
+  write, and resolves `releases/download/v<version>`; the panel passes its own
+  manifest version through argv; `Model.pinnedVersion` / `coreUpdateVersion` are
+  pure and node-tested; an Update button appears only when the core is behind.
+  - **Owner decision (asked, not assumed): local comparison only — no periodic
+    GitHub polling.** The panel already knows the core version every refresh
+    (snapshot `version`) and its own expected version (manifest), and the two
+    ship from one `VERSION`, so `manifest.version > core` already means a newer
+    core exists. Polling was rejected to avoid a second failure mode and a new
+    trust surface in a bar widget.
+  - **The two manifest fields are deliberately different, and this is the point
+    the owner surfaced:** `"version"` is rewritten by `set-version.sh` (which
+    anchors on `^  "version":`, two spaces, top level) and drives the *offer*;
+    `dependencies.quotamon` sits four spaces deep, is touched by neither
+    `set-version.sh` nor `check-versions.sh`, is hand-edited only when the
+    plugin truly cannot work on an older core, and drives the red *warning*.
+    So a providers-only release produces a quiet offer and no warning — the
+    panel is a dumb renderer and simply draws more rows. Pinned as a test:
+    manifest 2026.9.3 / min 2026.9.1 / core 2026.9.1 → offer, no warning.
+  - **PM verification beyond the report:** ran the script by hand for
+    `2026.9.2` (→ `releases/download/v2026.9.2`), no argument (→
+    `releases/latest/download`), and eight malformed inputs — `2026.9`,
+    `v2026.9.2`, `2026.13.1`, `latest`, `../../etc`, `"; id; #`, `""`, and two
+    arguments — each exiting 2 with the usage line and leaving the target bin
+    directory empty.
+- **Consequence of T-0075:** `publish-omarchy-plugin.sh` is now load-bearing for
+  user-visible behaviour, not just listing freshness. The manifest is what
+  carries the news, so forgetting to publish (the T-0070 failure) now costs
+  every user their update notification.
+- 2026-09-01 — **T-0076 filed** (owner approved): a plugin release cut for a
+  core-only change contains exactly one commit — the version bump — so
+  `generate_release_notes` produces a page that says nothing about why to
+  update. The workflow will pull the main repo's release notes for the same tag
+  into the body. The ticket's centre of gravity is the **fallback**: the main
+  release is built on a macOS runner and may not exist yet when the plugin
+  publishes, so a 404 must degrade to a link, never fail the release — and the
+  fetched body is text from another repository, so it must pass through verbatim
+  and never be executed.
