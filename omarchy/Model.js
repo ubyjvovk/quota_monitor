@@ -153,6 +153,24 @@ function severity(percent) {
   return "critical"
 }
 
+// The two-to-three-letter identity used by the Mac menu bar and Waybar.
+function providerBadge(row) {
+  var badges = {
+    claude: "CL",
+    codex: "GPT",
+    grok: "GK",
+    deepinfra: "DI",
+    kimi: "KM",
+    runinfra: "RI",
+    openrouter: "OR",
+    deepseek: "DS"
+  }
+  var id = row && row.id ? String(row.id) : ""
+  if (badges[id]) return badges[id]
+  var displayName = row && row.displayName ? String(row.displayName) : ""
+  return displayName.slice(0, 2).toUpperCase()
+}
+
 function formatPercent(percent) {
   if (percent === null || percent === undefined || !isFinite(Number(percent))) return "—"
   return Math.round(Number(percent)) + "%"
@@ -172,6 +190,18 @@ function formatCountdown(resetsAt, nowMs) {
   if (hours > 0) return "resets in " + hours + "h " + minutes + "m"
   if (minutes > 0) return "resets in " + minutes + "m"
   return "resets in <1m"
+}
+
+// The compact label reuses resetText so its wording cannot drift from it.
+function countdownText(window, nowMs) {
+  if (!window) return ""
+  var resetText = typeof window.resetText === "string"
+    ? window.resetText
+    : formatCountdown(window.resetsAt, nowMs)
+  var prefix = "resets in "
+  return resetText.slice(0, prefix.length) === prefix
+    ? resetText.slice(prefix.length)
+    : ""
 }
 
 function formatAge(observedAt, nowMs) {
@@ -258,6 +288,7 @@ function providerRows(snapshot, nowMs) {
     for (var j = 0; j < list.length; j++) {
       var window = list[j] || {}
       var percent = currentUsedPercent(window, nowMs)
+      var windowSeverity = severity(percent)
       windows.push({
         id: String(window.id || j),
         label: String(window.label || "Usage"),
@@ -265,7 +296,8 @@ function providerRows(snapshot, nowMs) {
         percent: percent,
         percentText: formatPercent(percent),
         resetText: formatCountdown(window.resetsAt, nowMs),
-        alarming: severity(percent) === "critical"
+        severity: windowSeverity,
+        alarming: windowSeverity === "critical"
       })
     }
     var status = provider.status || {}

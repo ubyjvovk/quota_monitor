@@ -53,6 +53,12 @@ Panel {
   readonly property string severity: Model.severity(headlinePercent)
   readonly property bool alarming: severity === "critical"
   function clamp(value, lo, hi) { return Math.max(lo, Math.min(hi, value)) }
+  function severityColor(severity) {
+    if (severity === "normal") return "#879A39"
+    if (severity === "warning") return "#d0772b"
+    if (severity === "critical") return root.urgent
+    return root.foreground
+  }
 
   function loadManifest() {
     var request = new XMLHttpRequest()
@@ -340,7 +346,7 @@ Panel {
             Column {
               required property var modelData
               width: column.width
-              spacing: Style.space(10)
+              spacing: Style.space(8)
 
               PanelHero {
                 width: parent.width
@@ -349,11 +355,21 @@ Panel {
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 iconComponent: Component {
-                  Text {
-                    text: "󰓅"
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.display
+                  Rectangle {
+                    color: root.track
+                    radius: Style.space(4)
+                    implicitWidth: badgeText.implicitWidth + Style.space(8)
+                    implicitHeight: badgeText.implicitHeight + Style.space(4)
+
+                    Text {
+                      id: badgeText
+                      anchors.centerIn: parent
+                      text: Model.providerBadge(modelData)
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
                   }
                 }
               }
@@ -472,11 +488,11 @@ Panel {
   component WindowRow: Column {
     id: windowRow
     property var window: null
-    spacing: Style.space(6)
+    spacing: Style.space(4)
 
     Item {
       width: parent.width
-      implicitHeight: Math.max(label.implicitHeight, value.implicitHeight)
+      implicitHeight: Math.max(label.implicitHeight, valueGroup.implicitHeight)
 
       Text {
         id: label
@@ -486,19 +502,32 @@ Panel {
         font.pixelSize: Style.font.body
         elide: Text.ElideRight
         anchors.left: parent.left
-        anchors.right: value.left
+        anchors.right: valueGroup.left
         anchors.rightMargin: Style.spacing.sm
         anchors.verticalCenter: parent.verticalCenter
       }
 
-      Text {
-        id: value
-        text: windowRow.window ? windowRow.window.percentText : "—"
-        color: windowRow.window && windowRow.window.alarming ? root.urgent : root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
+      Row {
+        id: valueGroup
+        spacing: Style.spacing.sm
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
+
+        Text {
+          visible: text !== ""
+          text: Model.countdownText(windowRow.window, root.nowMs)
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          id: value
+          text: windowRow.window ? windowRow.window.percentText : "—"
+          color: windowRow.window && windowRow.window.alarming ? root.urgent : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
       }
     }
 
@@ -520,17 +549,8 @@ Panel {
         height: meterTrack.height
         radius: meterTrack.radius
         width: meterTrack.width * root.clamp((windowRow.window && windowRow.window.percent !== null ? windowRow.window.percent : 0) / 100, 0, 1)
-        color: windowRow.window && windowRow.window.alarming ? root.urgent : root.foreground
+        color: root.severityColor(windowRow.window ? windowRow.window.severity : "unavailable")
       }
-    }
-
-    Text {
-      visible: text !== ""
-      width: parent.width
-      text: windowRow.window ? windowRow.window.resetText : ""
-      color: root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
     }
   }
 }
