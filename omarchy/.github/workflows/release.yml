@@ -1,0 +1,56 @@
+# This workflow lives under omarchy/ in quota_monitor and reaches the plugin
+# repository through the subtree split. It runs only from the plugin repository
+# root; GitHub treats it as inert in quota_monitor.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify tagged version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            manifest_version="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)",[[:space:]]*$/\1/p' manifest.json)"
+            if [ "$tag_version" != "$manifest_version" ]; then
+              echo "error: tag version $tag_version does not match manifest version $manifest_version" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Package
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)",[[:space:]]*$/\1/p' manifest.json)"
+          fi
+          zip -r "quotamon-omarchy-$VERSION.zip" . \
+            -x '.git/*' '.github/*' 'quotamon-omarchy-*.zip'
+
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quotamon-omarchy
+          path: quotamon-omarchy-*.zip
+
+      - name: Publish release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: quotamon-omarchy-*.zip
+          generate_release_notes: true
