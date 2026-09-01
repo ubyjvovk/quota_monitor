@@ -69,6 +69,53 @@ import Testing
         }
     }
 
+    @Test func coreVersionAsksTheBinaryAndStripsItsBanner() async throws {
+        let calls = CallRecorder()
+        let runner = QuotamonRunner { received, standardInput in
+            await calls.append(received, standardInput)
+            return Data("quotamon 2026.9.1\n".utf8)
+        }
+
+        #expect(try await runner.coreVersion() == "2026.9.1")
+        // The About panel asks for a version and has no secret to pass.
+        #expect(await calls.arguments == [["--version"]])
+        #expect(await calls.standardInputs == [nil])
+    }
+
+    @Test func coreVersionAcceptsAVersionPrintedWithoutTheBanner() async throws {
+        let runner = QuotamonRunner { _, _ in Data("2026.9.1\n".utf8) }
+
+        #expect(try await runner.coreVersion() == "2026.9.1")
+    }
+
+    @Test func coreVersionRejectsEmptyOutput() async {
+        let runner = QuotamonRunner { _, _ in Data("  \n".utf8) }
+
+        do {
+            _ = try await runner.coreVersion()
+            Issue.record("Expected empty output to fail")
+        } catch QuotaError.malformed(let message) {
+            #expect(message == "quotamon reported no version")
+        } catch {
+            Issue.record("Expected malformed, got \(error)")
+        }
+    }
+
+    @Test func coreVersionReportsAFailedProcessAsAQuotaError() async {
+        let runner = QuotamonRunner { _, _ in
+            throw QuotamonRunner.ProcessFailure(exitCode: 1, stderr: "unknown flag: --version\n")
+        }
+
+        do {
+            _ = try await runner.coreVersion()
+            Issue.record("Expected a non-zero exit to fail")
+        } catch QuotaError.transport(let message) {
+            #expect(message == "unknown flag: --version")
+        } catch {
+            Issue.record("Expected transport, got \(error)")
+        }
+    }
+
     @Test func bundledRunnerFeedsStandardInputAndCapturesStandardOutput() async throws {
         // `cat` with no arguments is the cheapest possible echo of what the
         // spawn path writes to the child — it exercises the pipe, the argv and

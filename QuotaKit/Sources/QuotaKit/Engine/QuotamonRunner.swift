@@ -75,6 +75,38 @@ public struct QuotamonRunner: Sendable {
         }
     }
 
+    /// The version of the `quotamon` this runner executes, as printed by
+    /// `quotamon --version`.
+    ///
+    /// Asking the binary is the point: the core is copied into the bundle by a
+    /// build phase, so a build-time constant would describe the app rather than
+    /// the executable actually sitting next to it.
+    public func coreVersion() async throws -> String {
+        let data: Data
+        do {
+            data = try await run(["--version"], nil)
+        } catch let failure as ProcessFailure {
+            throw Self.quotaError(for: failure)
+        } catch let error as QuotaError {
+            throw error
+        } catch {
+            throw QuotaError.transport("Could not run quotamon — \(error.localizedDescription)")
+        }
+
+        var text = String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // The core prints `quotamon <version>`; tolerate a bare version too, so
+        // the line stays right if the banner is ever dropped.
+        if text.hasPrefix("quotamon ") {
+            text = String(text.dropFirst("quotamon ".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !text.isEmpty else {
+            throw QuotaError.malformed("quotamon reported no version")
+        }
+        return text
+    }
+
     struct ProcessFailure: Error, Sendable {
         let exitCode: Int32?
         let stderr: String
