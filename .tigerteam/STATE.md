@@ -684,7 +684,18 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   `Tag v2026.9.1: will be created`, exit 0, split `88136ca` (byte-identical to
   the worker's split sha). The remote probe therefore works in production, not
   just in the degraded path.
-- **STILL NOT PUBLISHED.** `scripts/publish-omarchy-plugin.sh` has only ever
-  been run with `--dry-run`. The plugin repo remains at the T-0061 split with a
-  `1.0.0` manifest until the owner approves the real run (a force-push to
-  `quotamon-omarchy` plus the `v2026.9.1` tag that cuts its first release).
+- 2026-09-01 — **PUBLISHED, owner-approved in session.** Ran
+  `scripts/publish-omarchy-plugin.sh` for real. `quotamon-omarchy` master moved
+  `1c076f6..88136ca` (a fast-forward — the force flag was not needed) and the
+  new tag `v2026.9.1` was created. The plugin repo's own workflow fired on that
+  tag and succeeded on its first ever run (actions/runs/33512358812), cutting
+  **release `v2026.9.1`**, the repository's first, with asset
+  `quotamon-omarchy-2026.9.1.zip` (15,635 bytes).
+  Verified after the fact: the published `manifest.json` now reads
+  `"id": "ubyjvovk.quotamon"` / `"version": "2026.9.1"` / `"license": "MIT"`, so
+  the published README's `omarchy plugin enable ubyjvovk.quotamon` line finally
+  matches the manifest it ships with; and the downloaded asset contains exactly
+  the nine plugin files with no `.git/` or `.github/` entries, so an unzip is
+  directly installable. The packaging effort is closed — every surface
+  (core, CLI, Mac app, plugin manifest, plugin panel footer, both repos'
+  releases) reports `2026.9.1` from one `VERSION` file.
