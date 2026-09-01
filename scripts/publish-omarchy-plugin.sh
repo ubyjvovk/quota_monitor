@@ -2,6 +2,11 @@
 # Publish generated omarchy/ history to the standalone plugin repository and
 # tag it with the current CalVer, triggering the plugin's release workflow.
 # quota_monitor remains the source of truth; plugin PRs belong upstream here.
+#
+#   --no-tag   push master only, even when the version's tag does not exist yet.
+#              For putting an unreleased change in front of a reviewer's eyes
+#              (`omarchy plugin update` reads master); a later run without the
+#              flag cuts the tag once the change is approved.
 
 set -euo pipefail
 
@@ -11,14 +16,16 @@ cd "$ROOT"
 target=git@github.com:ubyjvovk/quotamon-omarchy.git
 target_set=false
 dry_run=false
+no_tag=false
 
 for arg in "$@"; do
   case $arg in
     --dry-run) dry_run=true ;;
-    -*) echo "Usage: $0 [--dry-run] [remote-url]" >&2; exit 2 ;;
+    --no-tag) no_tag=true ;;
+    -*) echo "Usage: $0 [--dry-run] [--no-tag] [remote-url]" >&2; exit 2 ;;
     *)
       if [[ $target_set == true ]]; then
-        echo "Usage: $0 [--dry-run] [remote-url]" >&2
+        echo "Usage: $0 [--dry-run] [--no-tag] [remote-url]" >&2
         exit 2
       fi
       target=$arg
@@ -96,7 +103,12 @@ echo "Publish target: $target (master)"
 echo "Plugin version: $tag"
 echo "Digest pin: quotamon-$VERSION.sha256 verified against release $tag"
 case $tag_state in
-  absent) echo "Tag $tag: will be created" ;;
+  absent)
+    if [[ $no_tag == true ]]; then
+      echo "Tag $tag: skipped (--no-tag) — master updated only; rerun without --no-tag to cut it"
+    else
+      echo "Tag $tag: will be created"
+    fi ;;
   present) echo "Tag $tag: already published — master updated only; bump with scripts/set-version.sh to cut a new plugin release" ;;
   unknown) echo "Tag $tag: unknown (could not reach $target)" ;;
 esac
@@ -109,6 +121,6 @@ fi
 # This history is generated from quota_monitor; the plugin repo is only a
 # publish target, and contributions should be made against the upstream tree.
 git push "$target" "$split_sha:refs/heads/master" --force
-if [[ $tag_state == absent ]]; then
+if [[ $tag_state == absent && $no_tag == false ]]; then
   git push "$target" "$split_sha:refs/tags/$tag"
 fi
