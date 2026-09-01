@@ -11,6 +11,7 @@ import (
 	"quotamon/internal/hybrid"
 	"quotamon/internal/registry"
 	"quotamon/internal/snapshot"
+	"quotamon/internal/version"
 )
 
 func TestDemoRendersAStableRepresentativeTableThroughTheNormalRenderer(t *testing.T) {
@@ -74,6 +75,9 @@ func TestDemoJSONAndWaybarBypassConfigAndProviderDiscovery(t *testing.T) {
 			}
 			if len(got.Providers) != 5 {
 				t.Fatalf("run(%q) providers = %d, want 5", test.args, len(got.Providers))
+			}
+			if got.Version != version.Value {
+				t.Fatalf("run(%q) version = %q, want %q", test.args, got.Version, version.Value)
 			}
 		})
 	}

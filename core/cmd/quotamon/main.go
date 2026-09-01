@@ -22,6 +22,7 @@ import (
 	"quotamon/internal/registry"
 	"quotamon/internal/snapshot"
 	"quotamon/internal/source"
+	"quotamon/internal/version"
 )
 
 const usageText = `Usage: quotamon [--demo] [--no-live] [--fresh] [--color=auto|always|never]
@@ -45,6 +46,7 @@ Options:
                             (fractional allowed). Default 15, or the
                             QUOTA_MONITOR_TIMEOUT env var. Flag wins.
   --color=auto|always|never Colour the table usage bars (default: auto)
+  --version                 Print the quotamon version and exit
   --help, -h                Show this help and exit
 `
 
@@ -76,6 +78,10 @@ func runWithDependencies(args []string, stdin io.Reader, stdout, stderr io.Write
 	for _, argument := range args {
 		if argument == "--help" || argument == "-h" {
 			fmt.Fprint(stdout, usageText)
+			return 0
+		}
+		if argument == "--version" {
+			fmt.Fprintf(stdout, "quotamon %s\n", version.Value)
 			return 0
 		}
 	}
@@ -372,6 +378,7 @@ func fetchAll(providers []hybrid.Provider, now func() time.Time, fetchTimeout ti
 	}
 	group.Wait()
 	return snapshot.Snapshot{
+		Version:     version.Value,
 		Providers:   resolved,
 		GeneratedAt: snapshot.Time{Time: now()},
 	}

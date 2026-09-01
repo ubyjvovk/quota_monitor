@@ -556,6 +556,36 @@ func TestHelpFormsListEveryCommandOnStandardOutput(t *testing.T) {
 					t.Errorf("help does not list %q: %s", command, stdout.String())
 				}
 			}
+			if !strings.Contains(stdout.String(), "--version                 Print the quotamon version and exit") {
+				t.Errorf("help does not list --version: %s", stdout.String())
+			}
+		})
+	}
+}
+
+func TestVersionFlagPrintsTheDevelopmentVersionFromAnyArgumentPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "version alone", args: []string{"--version"}},
+		{name: "version after snapshot command", args: []string{"snapshot", "--version"}},
+		{name: "version after demo flag", args: []string{"--demo", "--version"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exit := run(test.args, strings.NewReader(""), &stdout, &stderr, time.Now)
+			if exit != 0 {
+				t.Fatalf("run(%q) exit = %d, want 0", test.args, exit)
+			}
+			if got, want := stdout.String(), "quotamon dev\n"; got != want {
+				t.Fatalf("run(%q) stdout = %q, want %q", test.args, got, want)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("run(%q) stderr = %q, want empty", test.args, stderr.String())
+			}
 		})
 	}
 }
