@@ -855,3 +855,46 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   publishes, so a 404 must degrade to a link, never fail the release — and the
   fetched body is text from another repository, so it must pass through verbatim
   and never be executed.
+- 2026-09-01 — **T-0076 and T-0077 accepted; 2026.9.2 is cut locally and waiting
+  on one owner-run command.**
+  - **T-0076** — the plugin workflow now pulls the main repo's release notes for
+    the same tag into the release body, falling back to a bare link when that
+    release does not exist yet (the main release builds on a `macos-15` runner
+    and may notarize, so the plugin can easily publish first — a 404 must never
+    fail the plugin release). PM-verified by extracting the body-building step
+    and running it with a deliberately hostile core body containing backticks,
+    `$(id)` and a bare `---` line: all passed through verbatim, unexecuted. The
+    three degraded inputs (missing file, `"body":""`, `"body":null`) each
+    produced the link-only fallback. `Package` (step 34) runs before the new
+    steps (51, 63), so neither temp file can reach the zip.
+  - **T-0077 — a defect I specified into T-0075.** I had written "an unknown core
+    version must not produce an update offer; that case is what `versionWarning`
+    is for". Wrong: a core too old to report a `version` (pre-2026.9.1, before
+    T-0064 added the key) still returns readings, so `rows.length === 0` hides
+    the Install button, and the warning then pointed at an Update button that
+    was never rendered — the exact dead end T-0075 existed to remove, relocated
+    to older cores. Fixed with the asymmetry made explicit and commented: an
+    **absent** version means an old release (offer), an **unparseable** one like
+    `"dev"` means a deliberate local build (stay silent). The worker correctly
+    identified that exactly one prior assertion had to change — the one that
+    encoded the bug — and said so, as the ticket demanded.
+  - **Version bump 2026.9.2 (`9cd8ac6`) exposed a release-path tripwire.**
+    `model_test.mjs` pinned the live manifest version as a string literal in two
+    places, so the suite failed on *any* version bump — invisible until the first
+    release after the CalVer wave, which is the worst moment to find it. Fixed in
+    the same commit: behaviour is asserted against a fixed manifest, and the
+    shipped manifest is checked for *relationships* (`version` tracks `VERSION`,
+    `minQuotamon` is valid CalVer) rather than a literal every release must chase.
+  - `dependencies.quotamon` deliberately stays `>=2026.9.1`: the plugin works on
+    the older core, so this ships as a quiet offer, not a red warning.
+  - **PM-verified offer matrix against the shipped 2026.9.2 manifest:**
+    core 2026.9.1 → button, no warning; core 2026.9.2 → neither; old core with no
+    version key → button **and** warning; `dev` → neither; no snapshot → neither.
+- **BLOCKED ON THE OWNER:** `scripts/release.sh` is refused by the Claude Code
+  auto-mode classifier (it pushes to a remote) and must not be worked around.
+  The owner runs `! bash scripts/release.sh`. Master is ~40 commits ahead of
+  origin — this entire session is still local. After the main release finishes
+  building, the PM runs `scripts/publish-omarchy-plugin.sh` (not blocked), which
+  pushes the plugin tag and cuts a plugin release carrying the core's notes.
+  The owner then updates the plugin on the Omarchy box and remounts
+  (`omarchy restart shell`) before the Update button appears.
