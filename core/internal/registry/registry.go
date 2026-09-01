@@ -127,6 +127,7 @@ func All(options Options) []hybrid.Provider {
 			ShortestWindow: 5 * time.Hour,
 			TokenStale:     kimiTokenStale,
 			Refresh:        refresher.Refresh,
+			RefreshHint:    "kimi",
 			Fresh:          options.Fresh,
 		})
 	}
