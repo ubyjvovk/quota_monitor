@@ -773,3 +773,36 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   PM's file and the PM updates it at accept. No worker on this board can build
   the Xcode targets, so the ticket stops at `swift build` and the PM verifies
   the app and widget by hand.
+- 2026-09-01 — **Swift provider layer and `quotactl` deleted; `GO-PORT.md`
+  retired (T-0073, T-0074 accepted).** 2,212 lines gone across 15 files, plus
+  the 230-line port document. Swift tests 95 → **51**: the 44 that went tested
+  the deleted fetchers; the 27 covering the GUI path
+  (`ConsoleTableTests`, `ConsoleWidgetTests`, `QuotamonRunnerTests`) are
+  untouched and green, as is `Fixtures/`.
+  - **T-0073 came back blocked, correctly** — my survey had classified files by
+    where a type is *declared*, so `QuotaError` was swept in with the provider
+    layer it happens to live in. It is not dead: it is the error currency of the
+    surviving `QuotamonRunner`. Answer: move it to `Support/QuotaError.swift`,
+    drop `isTransient` / `reportingPriority` / `forHTTP` (verified zero
+    references), and **keep `errorDescription`** — it is the `LocalizedError`
+    conformance, and `QuotaEngine.refresh` reports failures via
+    `error.localizedDescription`, which routes through it; stripping it as
+    "unreferenced" would have degraded every panel error to a generic string.
+    Two more `Claude.providerID` / `Codex.providerID` callers surfaced in
+    `SnapshotStore.swift` and `ProviderSnapshot.shortNames`.
+  - **PM verification (nothing else can do it):** `xcodegen generate` +
+    `xcodebuild -scheme QuotaMonitor` → **BUILD SUCCEEDED**, with
+    `QuotaWidget.appex` embedded and validated in the bundle. Full suite green
+    on merged master.
+  - PM follow-ups taken by hand afterwards: `AGENTS.md` rewritten to describe
+    the tree that now exists (the Layout entry that said "Most work lands here"
+    pointed at the deleted `Providers/`); `README.md`'s QuotaKit line no longer
+    claims "sources, engine (frozen)"; and **`RefreshHint: "kimi"` wired in
+    `registry.go`** — T-0072 added the field but left it unset, which had
+    silently dropped Kimi into the generic no-hint wording.
+- **Process note:** running `xcodebuild` from inside
+  `.tigerteam/worktrees/T-0073` left the shell's cwd there, so the next
+  `tigerteam accept` / `status` resolved against the worktree's stale board
+  copy. Accept refused ("ticket is in todo/, expected review/") rather than
+  doing anything wrong, and re-running from the repo root worked. **Always `cd`
+  back to the board root before any board mutation.**
