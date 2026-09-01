@@ -13,6 +13,10 @@ branch is force-pushed from the upstream subtree. Each publish tags
 installable zip for each tag is available from this plugin repository's
 [Releases page](https://github.com/ubyjvovk/quotamon-omarchy/releases).
 
+`preview.png` beside the QML is the plugin's preview image — Omarchy looks for
+that exact filename in the plugin directory and no manifest key declares it, so
+keep the name if you replace the picture.
+
 The bar icon stacks one thin capsule per provider, filled to that
 provider's tightest current window and coloured by severity (`normal`
 below 70%, `warning` below 90%, `critical` above that). Click opens a
