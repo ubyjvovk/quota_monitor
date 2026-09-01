@@ -699,3 +699,24 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   directly installable. The packaging effort is closed — every surface
   (core, CLI, Mac app, plugin manifest, plugin panel footer, both repos'
   releases) reports `2026.9.1` from one `VERSION` file.
+- 2026-09-01 — **`omarchy/preview.png` added and published** (`87540f4`;
+  plugin repo `88136ca..c4196b1`). Omarchy reported the plugin had no preview
+  image. The convention, confirmed against the Omarchy docs: a file literally
+  named `preview.png` beside the QML, **declared by no manifest key** — the
+  filename is the whole contract, which is why nothing in `manifest.json` could
+  have flagged it missing. That contract is now recorded in `omarchy/README.md`
+  so a later rename does not silently blank the marketplace listing. The image
+  is the owner's own capture of the panel, 630x584, 57.6 kB, committed verbatim.
+  Verified live: `raw.githubusercontent.com/.../master/preview.png` serves
+  HTTP 200 `image/png`.
+  The publish took the `present` branch exactly as designed — **master only, the
+  `v2026.9.1` tag untouched** — so that release's zip keeps the bytes it was cut
+  from and does not carry the preview. Deliberate: both the marketplace and
+  `omarchy plugin add` read a clone of master, and bumping the project's CalVer
+  (a new DMG, a new main release) for a screenshot would be disproportionate.
+  Also confirmed by this push that the plugin workflow's `on: push: tags`
+  trigger does **not** fire on a branch push — the run count stayed at 1.
+- **Open, owner-side:** the preview shows Grok in its red stale state ("its
+  window has since reset"). Honest, but an odd shop window; a capture with both
+  providers live would sell it better. Cannot be taken here — Omarchy is not on
+  this machine. Also still open: the 5-second eyeball on the macOS About panel.
