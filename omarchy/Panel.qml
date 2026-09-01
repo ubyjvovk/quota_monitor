@@ -28,6 +28,9 @@ Panel {
   property bool timedOut: false
   property bool installTimedOut: false
   property double nowMs: Date.now()
+  property var manifest: Model.parseManifest("")
+
+  readonly property string manifestUrl: String(Qt.resolvedUrl("manifest.json"))
 
   // Qt.resolvedUrl anchors the shipped script to this QML file, independent of
   // the shell's working directory. Process needs a filesystem path, so decode
@@ -50,6 +53,21 @@ Panel {
   readonly property string severity: Model.severity(headlinePercent)
   readonly property bool alarming: severity === "critical"
   function clamp(value, lo, hi) { return Math.max(lo, Math.min(hi, value)) }
+
+  function loadManifest() {
+    var request = new XMLHttpRequest()
+    request.onreadystatechange = function() {
+      if (request.readyState !== XMLHttpRequest.DONE)
+        return
+      root.manifest = request.status === 0 || request.status === 200
+        ? Model.parseManifest(request.responseText)
+        : Model.parseManifest("")
+    }
+    request.open("GET", root.manifestUrl)
+    request.send()
+  }
+
+  Component.onCompleted: loadManifest()
 
   function openFromHotkey() {
     root.controller.show()
@@ -407,6 +425,27 @@ Panel {
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.refresh()
+          }
+
+          Text {
+            visible: text !== ""
+            width: parent.width
+            text: Model.versionWarning(root.manifest, root.snapshot)
+            color: root.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Text {
+            visible: text !== ""
+            width: parent.width
+            text: Model.aboutText(root.manifest, root.snapshot)
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
           }
         }
       }
