@@ -16,12 +16,22 @@ if [[ $# -eq 1 && ! $version =~ ^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$ ]]; then
   exit 2
 fi
 
-if [[ -n ${QUOTAMON_RELEASE_BASE:-} ]]; then
-  release_base=$QUOTAMON_RELEASE_BASE
-elif [[ -n $version ]]; then
+# A version argument and a release-base override never legitimately appear
+# together: the panel passes the version it shipped with, and an environment
+# variable must not be able to redirect a binary that is about to be executed.
+# Refusing beats silently preferring one, so a stale `export
+# QUOTAMON_RELEASE_BASE=...` left in a profile is named rather than obeyed.
+if [[ -n $version && -n ${QUOTAMON_RELEASE_BASE:-} ]]; then
+  echo "refusing to install: QUOTAMON_RELEASE_BASE is set but version $version was requested" >&2
+  echo "unset QUOTAMON_RELEASE_BASE, or call without a version to use it" >&2
+  exit 2
+fi
+
+# An explicit pin wins; the override applies only when no version was given.
+if [[ -n $version ]]; then
   release_base="https://github.com/ubyjvovk/quota_monitor/releases/download/v$version"
 else
-  release_base=https://github.com/ubyjvovk/quota_monitor/releases/latest/download
+  release_base=${QUOTAMON_RELEASE_BASE:-https://github.com/ubyjvovk/quota_monitor/releases/latest/download}
 fi
 bin_dir=${QUOTAMON_BIN_DIR:-"$HOME/.local/bin"}
 

@@ -51,6 +51,10 @@ To run the same installer manually:
 bash ~/.config/omarchy/plugins/ubyjvovk.quotamon/fetch-quotamon.sh
 ```
 
+Passing a version (`... fetch-quotamon.sh 2026.9.2`) pins the download to that
+release; the `QUOTAMON_RELEASE_BASE` override applies only when no version is
+passed, and setting both is refused.
+
 As a by-hand fallback, download `quotamon-linux-amd64` or
 `quotamon-linux-arm64` and `SHA256SUMS` from the main repository's release,
 verify the checksum, make the binary executable, and run `quotamon setup`.
