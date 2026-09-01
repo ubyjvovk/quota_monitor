@@ -24,7 +24,7 @@ tell, at a glance, which one you are about to hit the ceiling on:
 <sub>Left: `quotamon` in the terminal. Right: the macOS menu-bar panel. Both
 render sample data; your own numbers stay on your machine.</sub>
 
-The heavy lifting lives in [`core/`](core/README.md), a single static Go
+The heavy lifting lives in [`core/`](core/), a single static Go
 binary called **`quotamon`**. Everything above the normalised snapshot — the
 macOS app, the widget, the Waybar module, the Omarchy bar plugin — is a
 dumb renderer of it.
@@ -91,20 +91,22 @@ DeepInfra       pay-as-you-go live · just now
   credits       $7.75 this month
 ```
 
-Configuration lives in one JSON file (see the path precedence in
-[`core/README.md`](core/README.md#configuration)). API keys may live in that
-file, but the file is always written with mode **0600**, and a config carrying
-an `api_key` with looser permissions is refused — fix it with
-`chmod 600 <path>`.
+Configuration lives in one JSON file. API keys may live in that file, but the
+file is always written with mode **0600**, and a config carrying an `api_key`
+with looser permissions is refused — fix it with `chmod 600 <path>`.
 
 The other commands:
 
 ```bash
 ./bin/quotamon --json     # normalized snapshot as JSON (alias for `snapshot`)
+./bin/quotamon --version  # core version, for example `quotamon 2026.9.1`
 ./bin/quotamon waybar     # one line of Waybar custom-module JSON
 ./bin/quotamon check      # probe every source independently
 ./bin/quotamon providers  # which providers are enabled
 ```
+
+The snapshot JSON has top-level `version`, `generatedAt`, and `providers`
+keys; `version` identifies the `quotamon` core that produced the snapshot.
 
 Cross-compile for all supported platforms in one shot:
 
@@ -135,15 +137,19 @@ fallbacks. On per-monitor bars, each bar instance fetches independently.
 From a checkout, copy the source-of-truth directory into the local plugin tree:
 
 ```bash
-mkdir -p ~/.config/omarchy/plugins/quotamon
-cp -a omarchy/. ~/.config/omarchy/plugins/quotamon/
+mkdir -p ~/.config/omarchy/plugins/ubyjvovk.quotamon
+cp -a omarchy/. ~/.config/omarchy/plugins/ubyjvovk.quotamon/
 omarchy restart shell
-omarchy plugin enable quotamon --section center --after omarchy.clock
+omarchy plugin enable ubyjvovk.quotamon --section center --after omarchy.clock
 ```
 
 After editing plugin files, remount with `omarchy restart shell` — a file-watch
 reload often leaves the old icon mounted. Maintainers publish the standalone
 plugin repository with `scripts/publish-omarchy-plugin.sh`.
+
+The panel footer shows the Quota Monitor plugin version beside the `quotamon`
+core version, and warns when the installed core is older than the minimum in
+the plugin manifest.
 
 ### Waybar
 
@@ -228,10 +234,11 @@ brew install xcodegen
 
 The app bundles the `quotamon` binary in `Contents/Resources/`, runs it on the
 refresh interval (and on demand from the button), and ingests the snapshot
-JSON. **First run:** if no config exists, the app shows a setup pane that
-discovers your providers and writes the config for you — the GUI equivalent of
-`quotamon setup`. The **widget** reads the shared snapshot only (it never
-execs); it needs an App Group, which needs a signing team — see
+JSON. The macOS About panel shows both the app version and the version reported
+by the bundled core. **First run:** if no config exists, the app shows a setup
+pane that discovers your providers and writes the config for you — the GUI
+equivalent of `quotamon setup`. The **widget** reads the shared snapshot only
+(it never execs); it needs an App Group, which needs a signing team — see
 [`Config/Signing.xcconfig`](Config/Signing.xcconfig). The menu-bar app works
 fully without one.
 
@@ -284,13 +291,18 @@ Two notes:
 
 ## Contributing / for agents
 
-- **Releases:** cut a release with `scripts/release.sh`. The version is
-  `{major}.{commit count}` (e.g. `0.264`) — the major is bumped by hand in the
-  script, the minor is the commit count. The script tags (`v*`) and pushes
-  master + the tag, still triggering `.github/workflows/release.yml`, which
-  builds the universal DMG plus the standalone `quotamon` binaries and
-  publishes them to the GitHub Release. Signing and notarization switch on
-  automatically when the secrets listed in the workflow are present.
+- **Releases:** versions use CalVer `YYYY.M.MICRO`: a four-digit year, an
+  unpadded month, and the release count within that month starting at 1
+  (`MICRO` is not the day). The repo-root [`VERSION`](VERSION) file is the
+  single source of truth; bump it only with `scripts/set-version.sh <calver>`.
+  `scripts/check-versions.sh` runs in the test suite and fails if the packaged
+  version surfaces drift. `scripts/release.sh --next` suggests the next CalVer;
+  `scripts/release.sh` tags the current value as `v<VERSION>` and pushes master
+  plus the tag, triggering `.github/workflows/release.yml`, which builds the
+  universal DMG plus the standalone `quotamon` binaries and publishes them to
+  the GitHub Release. Signing and notarization switch on automatically when
+  the secrets listed in the workflow are present.
+- **Licence:** MIT; see [`LICENSE`](LICENSE).
 - [`AGENTS.md`](AGENTS.md) — how to work here (layout, conventions, commands, gotchas).
 - [`PROVIDERS.md`](PROVIDERS.md) — the provider contract: endpoints, credentials, dead ends.
 - [`GO-PORT.md`](GO-PORT.md) — the design record and status of the Go core port.
