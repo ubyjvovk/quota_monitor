@@ -48,9 +48,49 @@ jobs:
           name: quotamon-omarchy
           path: quotamon-omarchy-*.zip
 
+      - name: Fetch core release notes
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          api=${GH_API_BASE:-https://api.github.com}
+          curl -fsSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$api/repos/ubyjvovk/quota_monitor/releases/tags/$GITHUB_REF_NAME" \
+            -o core-release.json || rm -f core-release.json
+
+      - name: Build release body
+        if: github.event_name == 'push'
+        run: |
+          # The body is text from another repository and must never be executed,
+          # so it is written with printf '%s' (a literal argument, no expansion)
+          # and never interpolated into a command line. jq -r emits the raw body.
+          version="${GITHUB_REF_NAME#v}"
+          body=""
+          if [ -f core-release.json ]; then
+            body="$(jq -r '.body // ""' core-release.json)"
+          fi
+          if [ -n "$body" ]; then
+            {
+              printf 'Plugin release for **quotamon %s**.\n' "$version"
+              printf '\n'
+              printf '%s\n' "$body"
+              printf '\n---\n'
+              printf 'Core release: https://github.com/ubyjvovk/quota_monitor/releases/tag/v%s\n' "$version"
+            } > release-body.md
+          else
+            {
+              printf 'Plugin release for **quotamon %s**.\n' "$version"
+              printf '\n'
+              printf 'Core release: https://github.com/ubyjvovk/quota_monitor/releases/tag/v%s\n' "$version"
+            } > release-body.md
+          fi
+
       - name: Publish release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           files: quotamon-omarchy-*.zip
+          body_path: release-body.md
           generate_release_notes: true
