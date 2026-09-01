@@ -554,3 +554,49 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   choose the capture route. AGENTS.md now carries the six-place provider
   checklist. App rebuilt with OpenRouter enabled in the real config. NOT
   pushed.
+- 2026-09-01 — **Packaging wave planned: T-0064..T-0068 (CalVer + version
+  reporting + Omarchy manifest).** Owner brief: every component (console, Mac
+  app, Omarchy plugin) on CalVer `2026.9.1`; the app and the plugin must report
+  their own version *and* the underlying quotamon version in "about"; the
+  plugin manifest needs a correct version, dependencies, and better description
+  text. Four owner decisions taken up front (asked, not guessed):
+  (a) CalVer is **`YYYY.M.MICRO`** — micro = the Nth release *within that
+  month*, not the day (2026.9.1 → 2026.9.2 → 2026.10.1);
+  (b) the plugin id is renamed `quotamon` → **`ubyjvovk.quotamon`** to match the
+  Omarchy spec's namespacing rule — a deliberate break of the install path
+  `~/.config/omarchy/plugins/<id>/`;
+  (c) Omarchy's manifest schema has **no documented `dependencies` field**
+  (verified against the develop/publish guides and manual/32-shell-plugins.md),
+  so ours is an informational block **plus a runtime check in the panel** —
+  the declaration is enforced by us, not by Omarchy;
+  (d) MIT `LICENSE` added at the repo root and copied into `omarchy/` (the
+  plugin is subtree-published, so a root-only licence never reaches it);
+  `"license": "MIT"` goes in the manifest, which the develop guide lists as
+  required.
+- **PM design decisions (C3 → C2) for that wave:**
+  - `VERSION` at the repo root is the single source of truth. The Go binary is
+    stamped at link time (`-X quotamon/internal/version.Value`, default `dev`);
+    `project.yml` and `omarchy/manifest.json` must hold the literal (the
+    manifest is subtree-published, so it cannot be generated), which is why
+    `scripts/set-version.sh` is the only writer and `scripts/check-versions.sh`
+    makes drift a **test-suite failure**.
+  - Two different mechanisms for "underlying quotamon version", each chosen for
+    its consumer: the **Mac app runs `quotamon --version`** through the existing
+    `QuotamonRunner` (honest about the binary actually inside the bundle, and
+    correct before the first snapshot); the **Omarchy panel reads the new
+    top-level `version` key in the snapshot JSON** it already parses (no second
+    subprocess in QML). Both surfaces are therefore independent of each other.
+  - All plugin logic lands in `Model.js` behind node tests — nobody on this
+    board can run Hyprland, and T-0040's lesson was that an untested derived
+    layer in QML diverges. `Panel.qml` renders only.
+  - A `quotamon` older than 2026.9.1 emits no `version` key at all, so its
+    absence *is* the "too old" signal the panel warns on.
+  - `README.md` is deliberately owned by **one** ticket (T-0068, a C1 doc-sync
+    gated on the other four) so the parallel tickets never collide on it.
+  - Chain: T-0064 (core) → T-0065 (packaging scripts + project.yml + manifest
+    version) → {T-0066 (Mac About, `assignee: opus`, `capability: [macbuild]`),
+    T-0067 (plugin manifest + footer)} → T-0068 (README).
+  - Expect T-0066 to hand off unbuilt (the opus lane still cannot run
+    xcodebuild); PM builds, renders and verifies the About panel at review.
+  - Known gap noted while surveying: `README.md` links to `core/README.md`,
+    which does not exist — folded into T-0068 as a link fix, not a new file.
