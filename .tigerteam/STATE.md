@@ -1040,3 +1040,38 @@ Phase 2 (Grok, DeepInfra) and mac-app integration not yet ticketed.
   height dials, not in T-0080. Once approved:
   `bash scripts/publish-omarchy-plugin.sh` (no flag) cuts plugin `v2026.9.3`
   and its release, with the pinned installer and sidecar in the zip.
+- 2026-09-01 — **T-0080 rejected by the owner on a real box, T-0081 replaces
+  it; on plugin master under `--no-tag` (`c134984..dd913a1`).** Owner on
+  T-0080: "a total mess, all over the place, like 6 different typographics" —
+  that is the card idiom itself (`display`/`body`/`caption`/bold/uppercase per
+  element). Owner's new direction, superseding the earlier pick: **look like
+  the console / Mac dropdown, respect the theme.** Because T-0080 only ever
+  went out under `--no-tag`, no tagged release carries it.
+  - **T-0081**: `Model.consoleLines/consoleText` is a JS port of
+    `core/cmd/quotamon/table.go`, the same `Line`/`Span`/`Tone` model as
+    `ConsoleTable.swift`, plus a fourth `dim` tone for the `░` track. PM
+    verified `diff <(quotamon --demo) <(consoleText demo)` **empty**, and
+    against a live snapshot identical except one-second age skew between two
+    invocations. `Panel.qml`: every `Text` is `root.fontFamily` at
+    `Style.font.body` (6 of 6); zero hex literals; `toneColor` is the only
+    colour decision — `plain→foreground, dim→Color.muted, warning→Color.accent,
+    critical→Color.urgent`; `PanelHero`/`WindowRow`/`severityColor`/badge
+    deleted. `dim` was `Qt.darker(foreground,1.55)`, a fake theme colour; now
+    `Color.muted`. 103 node assertions. `model_test.mjs` now skips the shared
+    fixture and `../VERSION` when absent, so it is honest in the standalone
+    plugin repo too.
+  - **Design choice recorded:** table layout is now ported in three places
+    (`table.go`, `ConsoleTable.swift`, `omarchy/Model.js`), each golden-pinned
+    to `quotamon --demo`; AGENTS.md updated. The alternative — Go emitting
+    spans in `--json` — was deferred: it would freeze countdowns between
+    refreshes and need a core release plus a real `dependencies.quotamon` bump.
+  - Known constraint, in the plugin README: the table assumes a fixed-pitch
+    shell font (Omarchy's default is).
+- **Owner eyeball pending:** `omarchy plugin update && omarchy restart shell`.
+  If approved: `bash scripts/publish-omarchy-plugin.sh` (no flag) cuts plugin
+  `v2026.9.3`. Main repo has unpushed commits (sidecar, `--no-tag`, AGENTS,
+  board, STATE) — push with the owner's say-so or on the next `release.sh`.
+- Observed while testing on live data: the owner's Grok token expired at
+  21:10Z (its documented ~6 h lifetime); the panel now correctly says
+  `Cached 37m ago — live refresh failed: Grok sign-in expired — run grok login`
+  (T-0072's attached reason). Not a bug; `grok login` on that box clears it.
