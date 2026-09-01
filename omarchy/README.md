@@ -67,8 +67,8 @@ bash ~/.config/omarchy/plugins/ubyjvovk.quotamon/fetch-quotamon.sh
 ```
 
 Passing a version (`... fetch-quotamon.sh 2026.9.2`) pins the download to that
-release; the `QUOTAMON_RELEASE_BASE` override applies only when no version is
-passed, and setting both is refused.
+release and verifies it against the digest shipped in this plugin. The release
+origin is a constant in the script; no environment variable can redirect it.
 
 As a by-hand fallback, download `quotamon-linux-amd64` or
 `quotamon-linux-arm64` and `SHA256SUMS` from the main repository's release,

@@ -19,17 +19,6 @@ if [[ $# -eq 1 && ! $version =~ ^[0-9]{4}\.(1[0-2]|[1-9])\.[0-9]+$ ]]; then
   exit 2
 fi
 
-# A version argument and a release-base override never legitimately appear
-# together: the panel passes the version it shipped with, and an environment
-# variable must not be able to redirect a binary that is about to be executed.
-# Refusing beats silently preferring one, so a stale `export
-# QUOTAMON_RELEASE_BASE=...` left in a profile is named rather than obeyed.
-if [[ -n $version && -n ${QUOTAMON_RELEASE_BASE:-} ]]; then
-  echo "refusing to install: QUOTAMON_RELEASE_BASE is set but version $version was requested" >&2
-  echo "unset QUOTAMON_RELEASE_BASE, or call without a version to use it" >&2
-  exit 2
-fi
-
 # The plugin ships the SHA-256 of the exact core binaries it was released with.
 # A checksum downloaded beside the binary proves only that the transfer was
 # clean — both files come from one release, so one compromised release forges
@@ -46,11 +35,14 @@ if [[ -n $version ]]; then
   fi
 fi
 
-# An explicit pin wins; the override applies only when no version was given.
+# The release origin is a constant, on purpose. Nothing in the environment can
+# redirect where a binary that is about to be executed comes from; changing the
+# origin means changing this reviewed file.
+releases="https://github.com/ubyjvovk/quota_monitor/releases"
 if [[ -n $version ]]; then
-  release_base="https://github.com/ubyjvovk/quota_monitor/releases/download/v$version"
+  release_base="$releases/download/v$version"
 else
-  release_base=${QUOTAMON_RELEASE_BASE:-https://github.com/ubyjvovk/quota_monitor/releases/latest/download}
+  release_base="$releases/latest/download"
 fi
 bin_dir=${QUOTAMON_BIN_DIR:-"$HOME/.local/bin"}
 
