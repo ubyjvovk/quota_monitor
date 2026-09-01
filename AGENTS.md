@@ -20,8 +20,11 @@ app's model, engine and UI layer, and it is live code, not frozen. The macOS
 menu-bar app runs on the core through `QuotamonRunner` and its panel is
 *literally the console table*: `ConsoleTable` (QuotaKit/Support, a Swift port
 of `core/cmd/quotamon/table.go`, golden-pinned to `quotamon --demo`) drawn in
-SF Mono with the console palette. Table layout changes must land in both
-`table.go` and `ConsoleTable.swift`.
+SF Mono with the console palette. The Omarchy panel renders the same table
+from a third port in `omarchy/Model.js` (`consoleLines`, T-0081). **Table
+layout changes must land in all three — `table.go`, `ConsoleTable.swift`,
+`omarchy/Model.js` — and each is golden-pinned to `quotamon --demo`, so a
+change to one fails the other two's tests until they follow.**
 
 ## Layout
 - `core/internal/providers/` — per-provider sources. **Most provider work lands here.**
