@@ -13,7 +13,10 @@ return {
   aboutText,
   versionWarning,
   formatCountdown,
+  countdownText,
   formatAge,
+  severity,
+  providerBadge,
   sortedWindows,
   tightestPercent,
   tightestForRow,
@@ -122,6 +125,21 @@ assert.equal(Model.formatCountdown(after(59 * 1000), now), "resets in <1m")
 assert.equal(Model.formatCountdown(before(1), now), "window reset")
 assert.equal(Model.formatCountdown(null, now), "")
 
+const countdownRows = Model.providerRows({ providers: [{ windows: [
+  { id: "future", usedPercent: 5, resetsAt: after(2 * 60 * 60 * 1000 + 7 * 60 * 1000) },
+  { id: "past", usedPercent: 5, resetsAt: before(1) },
+  { id: "none", usedPercent: 5 }
+] }] }, now)[0].windows
+const futureCountdownWindow = countdownRows.find(window => window.id === "future")
+const pastCountdownWindow = countdownRows.find(window => window.id === "past")
+const noCountdownWindow = countdownRows.find(window => window.id === "none")
+assert.equal(
+  Model.countdownText(futureCountdownWindow, now),
+  futureCountdownWindow.resetText.replace(/^resets in /, "")
+)
+assert.equal(Model.countdownText(pastCountdownWindow, now), "")
+assert.equal(Model.countdownText(noCountdownWindow, now), "")
+
 assert.equal(Model.formatAge(before(3 * 1000), now), "just now")
 assert.equal(Model.formatAge(before(45 * 1000), now), "45s ago")
 assert.equal(Model.formatAge(before(12 * 60 * 1000), now), "12m ago")
@@ -191,6 +209,33 @@ assert.equal(Model.creditsText({ balance: "0x0", enabled: false, unlimited: fals
 
 assert.equal(Model.parseSnapshot("not json"), null)
 assert.deepEqual(Model.parseSnapshot("{}").providers, [])
+
+assert.equal(Model.providerBadge({ id: "claude" }), "CL")
+assert.equal(Model.providerBadge({ id: "codex" }), "GPT")
+assert.equal(Model.providerBadge({ id: "grok" }), "GK")
+assert.equal(Model.providerBadge({ id: "deepinfra" }), "DI")
+assert.equal(Model.providerBadge({ id: "kimi" }), "KM")
+assert.equal(Model.providerBadge({ id: "runinfra" }), "RI")
+assert.equal(Model.providerBadge({ id: "openrouter" }), "OR")
+assert.equal(Model.providerBadge({ id: "deepseek" }), "DS")
+assert.equal(Model.providerBadge({ id: "new-provider", displayName: "Nova" }), "NO")
+assert.equal(Model.providerBadge({}), "")
+
+const severityWindows = Model.providerRows({ providers: [{ windows: [
+  { id: "five", usedPercent: 5 },
+  { id: "seventy", usedPercent: 70 },
+  { id: "eighty-nine", usedPercent: 89 },
+  { id: "ninety", usedPercent: 90 },
+  { id: "hundred", usedPercent: 100 },
+  { id: "unavailable" }
+] }] }, now)[0].windows
+assert.equal(severityWindows.find(window => window.id === "five").severity, Model.severity(5))
+assert.equal(severityWindows.find(window => window.id === "seventy").severity, Model.severity(70))
+assert.equal(severityWindows.find(window => window.id === "eighty-nine").severity, Model.severity(89))
+assert.equal(severityWindows.find(window => window.id === "ninety").severity, Model.severity(90))
+assert.equal(severityWindows.find(window => window.id === "hundred").severity, Model.severity(100))
+assert.equal(severityWindows.find(window => window.id === "unavailable").percent, null)
+assert.equal(severityWindows.find(window => window.id === "unavailable").severity, Model.severity(null))
 
 const metadataRows = Model.providerRows({ providers: [
   { id: "cached", origin: "local", observedAt: before(45 * 1000), windows: [] },
